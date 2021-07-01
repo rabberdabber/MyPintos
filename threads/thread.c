@@ -20,6 +20,11 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+
+
 /* Random value for basic thread
    Do not modify this value. */
 #define THREAD_BASIC 0xd42df210
@@ -27,6 +32,9 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+
+static struct list sleep_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -47,7 +55,11 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
-static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+static unsigned thread_ticks;  
+ /* # of timer ticks since last yield. */
+
+unsigned global_tick = UINT32_MAX;
+static unsigned new_global_tick = UINT32_MAX;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -108,6 +120,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init(&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -133,6 +146,26 @@ thread_start (void) {
 	sema_down (&idle_started);
 }
 
+
+
+struct list_elem * in_sleep_thread_remove(struct list_elem * elem){
+	ASSERT(elem != NULL && !list_empty(&sleep_list));
+	ASSERT (intr_get_level () == INTR_OFF);
+	
+	struct list_elem * front = list_front(&sleep_list);
+	struct list_elem * back = list_back(&sleep_list);
+
+	if(elem == front){
+		return list_pop_front(&sleep_list);
+	}
+	else if(elem == back){
+		return list_pop_back(&sleep_list);
+	}
+	else{
+		return list_remove(elem);
+	}
+}
+
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
@@ -152,6 +185,27 @@ thread_tick (void) {
 	/* Enforce preemption. */
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
+}
+
+/* Change the state of the current thread to BLOCKED if the
+current thread is not idle thread and call schedule () */
+void 
+thread_sleep(int64_t ticks){
+	struct thread *curr = thread_current ();
+	enum intr_level old_level;
+
+	ASSERT (!intr_context ());
+
+	old_level = intr_disable ();
+	if (curr != idle_thread){
+		int64_t wakeup_tick =  ticks;
+		curr->wakeup_tick = wakeup_tick;
+		global_tick = MIN(global_tick,wakeup_tick);
+		list_push_back (&sleep_list, &curr->elem);
+		curr->in_sleep = true;
+	}
+	do_schedule (THREAD_BLOCKED);
+	intr_set_level (old_level);	
 }
 
 /* Prints thread statistics. */
@@ -307,6 +361,63 @@ thread_yield (void) {
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
+
+static struct list_elem *
+wakeup(void * aux){
+	struct thread * t = (struct thread *) aux;
+	struct list_elem * tmp = &t->elem;
+	ASSERT (intr_get_level () == INTR_OFF);
+	int64_t wakeup_tick = t->wakeup_tick;
+
+	if(wakeup_tick == global_tick){
+		t->status = THREAD_READY;
+		t->in_sleep = false;
+		
+		tmp = in_sleep_thread_remove(&t->elem);
+		list_push_back(&ready_list,&t->elem);
+	}
+	else{
+		new_global_tick = MIN(new_global_tick,wakeup_tick);
+	}
+
+	return tmp;
+}
+
+static void 
+thread_wake_lst(struct list * lst){
+	ASSERT( lst != NULL);
+	ASSERT (intr_get_level () == INTR_OFF);
+	struct list_elem * tmp;
+
+	struct list_elem * e;
+	for(e = list_begin(lst);e != list_end(lst);)
+	{
+		struct thread * t = list_entry(e,struct thread,elem);
+		
+		tmp = wakeup(t);
+
+		// no change to sleep list
+		if(tmp == e){
+			e = list_next(e);
+		}
+		else{
+			e = tmp;
+		}
+
+	}
+}
+
+void
+thread_wakeup(void) {
+
+	if(!list_empty(&sleep_list)){
+		new_global_tick = UINT32_MAX;
+		thread_wake_lst(&sleep_list);
+		global_tick = new_global_tick;
+	}
+}
+
+
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void

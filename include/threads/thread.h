@@ -91,7 +91,8 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-
+	int64_t wakeup_tick;
+	bool in_sleep;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
@@ -116,11 +117,12 @@ extern bool thread_mlfqs;
 
 void thread_init (void);
 void thread_start (void);
-
 void thread_tick (void);
+void thread_sleep(int64_t ticks);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
+struct list_elem * in_sleep_thread_remove(struct list_elem * elem);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
@@ -132,7 +134,7 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
-
+void thread_wakeup(void);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
