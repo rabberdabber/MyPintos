@@ -136,8 +136,9 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
 
+	int64_t curr_tick = timer_ticks ();
 	/* handles the sleep_list and the global tick */
-	thread_wakeup();
+	thread_wakeup(curr_tick);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

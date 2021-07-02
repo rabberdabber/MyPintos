@@ -59,7 +59,7 @@ static unsigned thread_ticks;
  /* # of timer ticks since last yield. */
 
 unsigned global_tick = UINT32_MAX;
-static unsigned new_global_tick = UINT32_MAX;
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -152,18 +152,9 @@ struct list_elem * in_sleep_thread_remove(struct list_elem * elem){
 	ASSERT(elem != NULL && !list_empty(&sleep_list));
 	ASSERT (intr_get_level () == INTR_OFF);
 	
-	struct list_elem * front = list_front(&sleep_list);
-	struct list_elem * back = list_back(&sleep_list);
-
-	if(elem == front){
-		return list_pop_front(&sleep_list);
-	}
-	else if(elem == back){
-		return list_pop_back(&sleep_list);
-	}
-	else{
-		return list_remove(elem);
-	}
+	list_pop_front(&sleep_list);
+	return list_empty(&sleep_list)?NULL:list_front(&sleep_list);
+	
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -186,26 +177,32 @@ thread_tick (void) {
 	if (++thread_ticks >= TIME_SLICE)
 		intr_yield_on_return ();
 }
+static bool 
+thread_order_sleep_list(const struct list_elem * a,const struct list_elem * b,
+void * aux UNUSED){
 
+	struct thread * t1  = list_entry(a,struct thread, elem);
+	struct thread * t2 = list_entry(b,struct thread,elem);
+	
+	return t1->wakeup_tick < t2->wakeup_tick;
+}
 /* Change the state of the current thread to BLOCKED if the
 current thread is not idle thread and call schedule () */
 void 
 thread_sleep(int64_t ticks){
 	struct thread *curr = thread_current ();
-	enum intr_level old_level;
 
-	ASSERT (!intr_context ());
+	ASSERT (intr_get_level () == INTR_OFF);
 
-	old_level = intr_disable ();
 	if (curr != idle_thread){
 		int64_t wakeup_tick =  ticks;
 		curr->wakeup_tick = wakeup_tick;
 		global_tick = MIN(global_tick,wakeup_tick);
-		list_push_back (&sleep_list, &curr->elem);
+		list_insert_ordered (&sleep_list, &curr->elem,thread_order_sleep_list,NULL);
 		curr->in_sleep = true;
 	}
 	do_schedule (THREAD_BLOCKED);
-	intr_set_level (old_level);	
+
 }
 
 /* Prints thread statistics. */
@@ -365,55 +362,70 @@ thread_yield (void) {
 static struct list_elem *
 wakeup(void * aux){
 	struct thread * t = (struct thread *) aux;
-	struct list_elem * tmp = &t->elem;
+	struct list_elem * tmp = NULL;
 	ASSERT (intr_get_level () == INTR_OFF);
 	int64_t wakeup_tick = t->wakeup_tick;
 
 	if(wakeup_tick == global_tick){
 		t->status = THREAD_READY;
 		t->in_sleep = false;
-		
 		tmp = in_sleep_thread_remove(&t->elem);
 		list_push_back(&ready_list,&t->elem);
 	}
-	else{
-		new_global_tick = MIN(new_global_tick,wakeup_tick);
-	}
-
+	
 	return tmp;
 }
 
 static void 
-thread_wake_lst(struct list * lst){
-	ASSERT( lst != NULL);
+thread_wake_lst(void){
 	ASSERT (intr_get_level () == INTR_OFF);
 	struct list_elem * tmp;
 
 	struct list_elem * e;
-	for(e = list_begin(lst);e != list_end(lst);)
+	for(e = list_begin(&sleep_list);e != list_end(&sleep_list);)
 	{
 		struct thread * t = list_entry(e,struct thread,elem);
+		struct thread * t2;
 		
 		tmp = wakeup(t);
 
-		// no change to sleep list
-		if(tmp == e){
-			e = list_next(e);
+		if(tmp){
+			t2 = list_entry(tmp,struct thread,elem);
 		}
-		else{
+		
+		// the same wake up time as the prev thread
+		if(tmp && t != t2 && t->wakeup_tick == t2->wakeup_tick){
 			e = tmp;
+		}
+		// wake up time not yet
+		else{
+			break;
 		}
 
 	}
 }
 
 void
-thread_wakeup(void) {
+thread_wakeup(int64_t curr_tick) {
 
 	if(!list_empty(&sleep_list)){
-		new_global_tick = UINT32_MAX;
-		thread_wake_lst(&sleep_list);
-		global_tick = new_global_tick;
+		
+		if(curr_tick == global_tick){
+			thread_wake_lst();
+
+			if(!list_empty(&sleep_list)){
+				struct list_elem * e = list_front(&sleep_list);
+				struct thread * t = list_entry(e,struct thread,elem);
+				global_tick = t->wakeup_tick;
+		    }
+		
+			else{
+				global_tick = UINT32_MAX;
+			}
+
+		}
+			
+
 	}
 }
 
