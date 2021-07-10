@@ -97,6 +97,7 @@ struct thread {
 	int priority;                       /* Priority. */
 	int64_t wakeup_tick;
 	bool in_sleep;
+	void * wait_on_lock;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list donation_list;

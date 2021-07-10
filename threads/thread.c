@@ -465,10 +465,7 @@ void
 thread_set_priority (int new_priority) {
 
 
-	struct thread * curr_thread = thread_current ();
-
-	curr_thread->priority = new_priority;
-	/*
+	struct thread * curr_thread = thread_current ();	
 	struct list * donation_list_ptr = &curr_thread->donation_list;
 	struct list * waiters_list;
 	struct list_elem * e;
@@ -478,8 +475,8 @@ thread_set_priority (int new_priority) {
 
 	for(e = list_begin(donation_list_ptr);e != list_end(donation_list_ptr);e = list_next(e)){
 		tmp = list_entry(e,struct lock,elem);
-		tmp->priority = tmp->holder_priority  = new_priority;
-		tmp->holder_priority = new_priority;
+		tmp->priority = tmp->holder_priority = new_priority;
+	
 		waiters_list = &tmp->semaphore.waiters;
 		for(n = list_begin(waiters_list);n != list_end(waiters_list);n = list_next(n)){
 			t = list_entry(n,struct thread,elem);
@@ -494,7 +491,11 @@ thread_set_priority (int new_priority) {
 	if(!list_empty(&curr_thread->donation_list)){
 		struct lock * lck = list_entry(list_front(&curr_thread->donation_list),struct lock,elem);
 		lock_update_priority(lck);
-	}*/
+	}
+
+	else{
+		curr_thread->priority = new_priority;
+	}
 
 	// adjust the ready list
 
