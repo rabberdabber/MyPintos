@@ -28,6 +28,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -95,6 +99,7 @@ struct thread {
 	bool in_sleep;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list donation_list;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -127,6 +132,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+void thread_run(int priority);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
@@ -137,7 +143,8 @@ void thread_yield (void);
 void thread_wakeup(int64_t curr_tick);
 int thread_get_priority (void);
 void thread_set_priority (int);
-
+bool thread_order_ready_list(const struct list_elem * a,const struct list_elem * b,
+void * aux UNUSED);
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
