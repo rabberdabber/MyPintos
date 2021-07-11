@@ -230,7 +230,6 @@ lock_acquire (struct lock *lock) {
 		curr_thread->wait_on_lock = (void *) lock;
 		
 		if(!list_empty(&lock_holder->donation_list) && curr_priority < lock->priority){
-			list_sort(&lock_holder->donation_list,lock_order_list,NULL);
 			lock_update_priority(lock);
 		}
 	}
@@ -261,7 +260,6 @@ lock_try_acquire (struct lock *lock) {
 	return success;
 }
 
-
 /* Releases LOCK, which must be owned by the current thread.
    This is lock_release function.
 
@@ -281,6 +279,7 @@ lock_release (struct lock *lock) {
 	/* removes the lock from donation and updates the priority */
 	list_remove(&lock->elem);
 	lock_update_priority(lock);
+	
 
 	lock->holder = NULL;
 	lock->priority  = lock->holder_priority =  0;
@@ -361,6 +360,7 @@ lock_update_priority(struct lock * lock){
 	struct lock * lock_elem;
 	int max_priority = lock->holder_priority;
 
+	list_sort(&holder->donation_list,lock_order_list,NULL);
 	if(!list_empty(donation_list_ptr)){
 		e = list_front(donation_list_ptr);
 		max_priority = list_entry(e,struct lock,elem)->priority;
@@ -370,14 +370,19 @@ lock_update_priority(struct lock * lock){
 
 	int priority = max_priority;
 	int tmp;
+	struct lock * lock_tmp;
 
 	
 	// nested donation
 	while(true){
 		 if(holder->wait_on_lock){
-			 holder = ((struct lock *) holder->wait_on_lock)->holder;
+			 lock_tmp = ((struct lock *) holder->wait_on_lock);
+			 holder = lock_tmp->holder;
 			 tmp = holder->priority;
+			 
 			 holder->priority = MAX(priority,holder->priority);
+			 lock_tmp->priority = holder->priority;
+			 
 			 // if any change then continue
 			 if(holder->priority > tmp){
 				 continue;
