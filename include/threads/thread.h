@@ -18,6 +18,12 @@ enum thread_status {
 	THREAD_DYING        /* About to be destroyed. */
 };
 
+/* Which field to update when calling mlfqs_update_threads */
+enum thread_fields {
+	PRIORITY,
+	RECENT_CPU
+};
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -98,8 +104,11 @@ struct thread {
 	int64_t wakeup_tick;
 	bool in_sleep;
 	void * wait_on_lock;
+	int nice;
+	int recent_cpu;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list_elem all_elem;
 	struct list donation_list;
 
 #ifdef USERPROG
@@ -144,13 +153,19 @@ void thread_yield (void);
 void thread_wakeup(int64_t curr_tick);
 int thread_get_priority (void);
 void thread_set_priority (int);
-bool thread_order_ready_list(const struct list_elem * a,const struct list_elem * b,
-void * aux UNUSED);
+bool thread_order_ready_list(const struct list_elem * a,const struct list_elem * b,void * aux UNUSED);
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+void mlfqs_update_priority(struct thread * t);
+void mlfqs_update_recent_cpu(struct thread * t);
+void mlfqs_increment_recent_cpu(void);
+void mlfqs_update_load_avg(void);
+void mlfqs_update_threads(enum thread_fields field);
+void mlfqs_update(int64_t ticks);
+
 
 #endif /* threads/thread.h */

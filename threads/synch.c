@@ -218,26 +218,33 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-	//donate priority to the lock holder if necessary
-	struct thread * lock_holder = lock->holder;
-	struct thread * curr_thread = thread_current();
+	if(!thread_mlfqs){
+		//donate priority to the lock holder if necessary
+		struct thread * lock_holder = lock->holder;
+		struct thread * curr_thread = thread_current();
 
-	/* update the priority of the lock and insert the thread into waiting list if the 
-	   lock is held, if it is updated then  */ 
-	if(lock_holder){
-		int curr_priority = lock->priority;
-		lock->priority = MAX(lock->priority,curr_thread->priority);
-		curr_thread->wait_on_lock = (void *) lock;
-		
-		if(!list_empty(&lock_holder->donation_list) && curr_priority < lock->priority){
-			lock_update_priority(lock);
+		/* update the priority of the lock and insert the thread into waiting list if the 
+		lock is held, if it is updated then  */ 
+		if(lock_holder){
+			int curr_priority = lock->priority;
+			lock->priority = MAX(lock->priority,curr_thread->priority);
+			curr_thread->wait_on_lock = (void *) lock;
+			
+			if(!list_empty(&lock_holder->donation_list) && curr_priority < lock->priority){
+				lock_update_priority(lock);
+			}
 		}
+		
+		sema_down (&lock->semaphore);
+		lock_holder = lock->holder = thread_current ();
+		lock->priority = lock->holder_priority = lock_holder->priority;
+		list_insert_ordered(&lock_holder->donation_list,&lock->elem,lock_order_list,NULL);
+		return;
 	}
-	
+
+	// for advanced scheduler
 	sema_down (&lock->semaphore);
-	lock_holder = lock->holder = thread_current ();
-	lock->priority = lock->holder_priority = lock_holder->priority;
-	list_insert_ordered(&lock_holder->donation_list,&lock->elem,lock_order_list,NULL);
+	lock->holder = thread_current ();
 
 }  
 
@@ -271,18 +278,24 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 	
-	struct thread * lock_holder = lock->holder;
-	struct list * donation_list_ptr = &lock_holder->donation_list;
+	if(!thread_mlfqs){
+		struct thread * lock_holder = lock->holder;
+		struct list * donation_list_ptr = &lock_holder->donation_list;
 
-	ASSERT(!list_empty(donation_list_ptr));
+		ASSERT(!list_empty(donation_list_ptr));
 
-	/* removes the lock from donation and updates the priority */
-	list_remove(&lock->elem);
-	lock_update_priority(lock);
+		/* removes the lock from donation and updates the priority */
+		list_remove(&lock->elem);
+		lock_update_priority(lock);
 	
+		lock->priority  = lock->holder_priority =  0;
+		lock->holder = NULL;
+		sema_up(&lock->semaphore);
+		return;
+	}
 
+	
 	lock->holder = NULL;
-	lock->priority  = lock->holder_priority =  0;
 	sema_up (&lock->semaphore);
 }
 
@@ -357,7 +370,6 @@ lock_update_priority(struct lock * lock){
 	struct list * donation_list_ptr = &holder->donation_list;
 
 	struct list_elem * e;
-	struct lock * lock_elem;
 	int max_priority = lock->holder_priority;
 
 	list_sort(&holder->donation_list,lock_order_list,NULL);
