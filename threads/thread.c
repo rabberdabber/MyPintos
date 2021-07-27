@@ -8,9 +8,10 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "vm/vm.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -138,12 +139,28 @@ thread_start (void) {
 	struct semaphore idle_started;
 	sema_init (&idle_started, 0);
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
-
+	lock_init(&file_lock);
 	/* Start preemptive thread scheduling. */
 	intr_enable ();
 
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down (&idle_started);
+}
+
+struct thread * 
+thread_get (tid_t tid) {
+
+	struct list_elem * e;
+	struct thread * t;
+
+	for(e = list_begin(&ready_list);e != list_end(&ready_list); e = list_next(e)){
+		t = list_entry(e,struct thread,elem);
+		if(t->tid == tid){
+			return t;
+		}
+	}
+
+	return NULL;
 }
 
 
@@ -244,6 +261,18 @@ thread_create (const char *name, int priority,
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
 
+#ifdef USERPROG
+	t->next_fd = 2;
+	t->fd_table = (struct file **) palloc_get_multiple(PAL_ZERO,2);
+
+	if(!t->fd_table){
+		return TID_ERROR;
+	}
+	
+	
+
+#endif
+
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t) kernel_thread;
@@ -342,6 +371,7 @@ thread_exit (void) {
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
+
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
@@ -528,7 +558,14 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	memset (t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
+
+#ifdef USERPROG
+	list_init(&t->child);
+#endif
+
 	strlcpy (t->name, name, sizeof t->name);
+	sema_init(&t->sema_fork,0);
+	sema_init(&t->sema_wait,0);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
@@ -550,6 +587,7 @@ next_thread_to_run (void) {
 /* Use iretq to launch the thread */
 void
 do_iret (struct intr_frame *tf) {
+
 	__asm __volatile(
 			"movq %0, %%rsp\n"
 			"movq 0(%%rsp),%%r15\n"

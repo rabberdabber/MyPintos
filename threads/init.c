@@ -21,6 +21,8 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -244,8 +246,13 @@ run_task (char **argv) {
 	if (thread_tests){
 		run_test (task);
 	} else {
-		process_wait (process_create_initd (task));
+		tid_t tid = process_create_initd (task);
+		struct thread * child_thread = thread_get(tid);
+
+		list_push_back(&thread_current ()->child,&child_thread->child_elem);
+		process_wait (tid);
 	}
+
 #else
 	run_test (task);
 #endif

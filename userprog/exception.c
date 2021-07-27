@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "intrinsic.h"
+#include "userprog/syscall.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -83,10 +84,11 @@ kill (struct intr_frame *f) {
 		case SEL_UCSEG:
 			/* User's code segment, so it's a user exception, as we
 			   expected.  Kill the user process.  */
-			printf ("%s: dying due to interrupt %#04llx (%s).\n",
-					thread_name (), f->vec_no, intr_name (f->vec_no));
-			intr_dump_frame (f);
-			thread_exit ();
+			//printf ("%s: dying due to interrupt %#04llx (%s).\n",
+			//		thread_name (), f->vec_no, intr_name (f->vec_no));
+			//intr_dump_frame (f);
+			exit(-1);
+			//thread_exit ();
 
 		case SEL_KCSEG:
 			/* Kernel's code segment, which indicates a kernel bug.
@@ -95,13 +97,14 @@ kill (struct intr_frame *f) {
 			   here.)  Panic the kernel to make the point.  */
 			intr_dump_frame (f);
 			PANIC ("Kernel bug - unexpected interrupt in kernel");
+			
 
 		default:
 			/* Some other code segment?  Shouldn't happen.  Panic the
 			   kernel. */
 			printf ("Interrupt %#04llx (%s) in unknown segment %04x\n",
 					f->vec_no, intr_name (f->vec_no), f->cs);
-			thread_exit ();
+			exit(-1);
 	}
 }
 
@@ -146,15 +149,20 @@ page_fault (struct intr_frame *f) {
 		return;
 #endif
 
+	if(!user) {
+		f->rip = (void *) f->R.rax;
+		f->R.rax = ~0;
+    	return;
+  	}
 	/* Count page faults. */
 	page_fault_cnt++;
 
 	/* If the fault is true fault, show info and exit. */
-	printf ("Page fault at %p: %s error %s page in %s context.\n",
+	/*printf ("Page fault at %p: %s error %s page in %s context.\n",
 			fault_addr,
 			not_present ? "not present" : "rights violation",
 			write ? "writing" : "reading",
-			user ? "user" : "kernel");
+			user ? "user" : "kernel");*/
 	kill (f);
 }
 

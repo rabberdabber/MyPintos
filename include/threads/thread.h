@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -27,6 +28,9 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+struct lock file_lock;
+
 
 /* A kernel thread or user process.
  *
@@ -96,9 +100,22 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+
+	struct semaphore sema_fork;
+	struct semaphore sema_wait;
+	int exit_status;
+	struct list child;
+	struct list_elem child_elem;
+	struct file **fd_table;	// file descriptor table
+	int next_fd; // next_available fd
+	struct file * running_file;
+
+
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+
 #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
@@ -107,13 +124,15 @@ struct thread {
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
-	unsigned magic;                     /* Detects stack overflow. */
+	unsigned magic;                      /* Detects stack overflow. */
 };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+struct lock file_lock;
 
 void thread_init (void);
 void thread_start (void);
@@ -131,8 +150,10 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
+struct thread * thread_get (tid_t tid);
 
 void thread_exit (void) NO_RETURN;
+void thread_exit_executor(void) NO_RETURN;
 void thread_yield (void);
 void thread_wakeup(int64_t curr_tick);
 int thread_get_priority (void);
