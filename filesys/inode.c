@@ -143,6 +143,11 @@ inode_get_inumber (const struct inode *inode) {
 	return inode->sector;
 }
 
+int
+inode_get_deny_write_cnt(const struct inode *inode){
+	return inode->deny_write_cnt;
+}
+
 /* Closes INODE and writes it to disk.
  * If this was the last reference to INODE, frees its memory.
  * If INODE was also a removed inode, frees its blocks. */

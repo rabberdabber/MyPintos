@@ -12,12 +12,19 @@
 #include "filesys/filesys.h"
 #include "devices/input.h"
 #include "filesys/file.h"
+#include "filesys/inode.h"
 #include "userprog/process.h"
 #include "threads/palloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
+/* An open file. */
+struct file {
+	struct inode *inode;        /* File's inode. */
+	off_t pos;                  /* Current position. */
+	bool deny_write;            /* Has file_deny_write() been called? */
+};
 
 
 static pid_t fork_ (const char *thread_name,struct intr_frame * if_);
@@ -80,8 +87,11 @@ void halt (void){
 	printf("%s: exit(%d)\n",t->name,status);
 
 	/* wake up any waiting parent thread  and hold exit_status intact*/
-	sema_up(&t->sema_wait);
-	sema_down(&t->sema_wait_status);
+	if(t->waiting_for_me){
+		sema_up(&t->sema_wait);
+		sema_down(&t->sema_wait_status);
+	}
+
 	
 	thread_exit();
 }
@@ -126,6 +136,7 @@ int exec(const char * file){
 
 	int written_sofar = 0;
 	struct thread *t = thread_current ();
+	struct file * file_p;
 
 	if(fd == STDIN_FILENO || t->next_fd <= fd || !buffer){
 		exit(-1);
@@ -142,7 +153,10 @@ int exec(const char * file){
 			lock_release(&file_lock);
 			exit(-1);
 		}
+
+		file_p = t->fd_table[fd];
 		written_sofar = file_write(t->fd_table[fd],buffer,length);
+		printf("written so far is %d while length is %d and file deny write is %d\n",written_sofar,length,t->fd_table[fd]->deny_write);
 		lock_release(&file_lock);
 	}
 
@@ -187,10 +201,11 @@ int exec(const char * file){
 
 	if(fd == STDIN_FILENO){
 
-		while(read_sofar < length){
+	/*	while(read_sofar < length){
 			((char *)buffer)[read_sofar] = input_getc();
 			read_sofar++;
-		}
+		}*/
+		read_sofar = input_getc();
 
 	}
 
@@ -227,6 +242,18 @@ int exec(const char * file){
 		return -1;
 	}
 
+	struct inode *inode = file_get_inode(open_file);
+	int deny_write_cnt = inode_get_deny_write_cnt(inode);
+
+	/* if the file is denied writing privileges */
+	if(deny_write_cnt > 0){
+		open_file->deny_write = true;
+	}
+
+	if(deny_write_cnt == 0){
+		open_file->deny_write = false;
+	}
+
 	t->fd_table[t->next_fd] = open_file;
 
 	return t->next_fd++;
@@ -259,8 +286,9 @@ int exec(const char * file){
 
 	lock_acquire(&file_lock);
 
-	if(t->fd_table[fd])
+	if(t->fd_table[fd]){
 		file_seek(t->fd_table[fd],position);
+	}
 
 	lock_release(&file_lock);
 }
@@ -287,15 +315,23 @@ int exec(const char * file){
  void close (int fd){
 
 	struct thread * t = thread_current ();
+	struct file * file_p;
 
 	if(t->next_fd <= fd){
 		exit(-1);
 	}
 
 	lock_acquire(&file_lock);
-
 	/* if fd available */
 	if(t->fd_table[fd]){
+		file_p = t->fd_table[fd];
+		struct inode *inode = file_get_inode(file_p);
+		int deny_write_cnt = inode_get_deny_write_cnt(inode);
+
+		if(deny_write_cnt > 0){
+			file_deny_write(t->fd_table[fd]);
+		}
+
 		file_close(t->fd_table[fd]);
 		t->fd_table[fd] = NULL;
 	}

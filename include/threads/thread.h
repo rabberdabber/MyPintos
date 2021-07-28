@@ -105,7 +105,7 @@ struct thread {
 	struct list_elem elem;              /* List element. */
 	struct list donation_list;
 
-
+	bool waiting_for_me;
 	struct semaphore sema_wait;
 	struct semaphore sema_fork;
 	struct semaphore sema_fork_status;

@@ -10,6 +10,7 @@
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -30,6 +31,14 @@ struct threadInfo {
 	struct thread * t;
 	struct intr_frame if_;
 };
+
+/* An open file. */
+struct file {
+	struct inode *inode;        /* File's inode. */
+	off_t pos;                  /* Current position. */
+	bool deny_write;            /* Has file_deny_write() been called? */
+};
+
 
 
 static void process_cleanup (void);
@@ -108,8 +117,6 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	info->t = thread_current ();
 
 	memcpy(&info->if_,if_,sizeof(struct intr_frame));
-
-
 
 	tid_t tid =  thread_create (name,
 			PRI_DEFAULT, __do_fork,info);
@@ -214,28 +221,26 @@ __do_fork (void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-	struct file * running_file = parent->running_file;
-	struct file * fp;
+	struct file * fp = NULL;
 
 	lock_acquire(&file_lock);
-
 	for(int fd = 2;fd < parent->next_fd;fd++){
-		fp = file_duplicate(parent->fd_table[fd]);
+
+		if(parent->fd_table[fd])
+			fp = file_duplicate(parent->fd_table[fd]);
 
 		if(!fp){
 			printf("duplicating file to child failed\n");
+			lock_release(&file_lock);
 			goto error;
 		}
 
 		current->fd_table[fd] = fp;
 		current->next_fd++;
-
-		if(running_file == parent->fd_table[fd]){
-			file_deny_write(current->fd_table[fd]);
-		}
 	}
 
 	lock_release(&file_lock);
+
 	
 	current->exit_status = 0;// cloning succeeded
 
@@ -277,7 +282,6 @@ process_exec (void *f_name) {
 	process_cleanup();
 
 	
-
 	lock_acquire(&file_lock);
 	/* And then load the binary */
 	success = load (file_name,&_if);
@@ -287,11 +291,9 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 
 	if (!success){
-		thread_current ()->running_file = NULL;
 		exit(-1);
 	}
 
-	
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -332,6 +334,7 @@ process_wait (tid_t child_tid UNUSED) {
 		return -1;
 	}
 
+	child->waiting_for_me = true;
 	sema_down(&child->sema_wait);
 	int exit_status = child->exit_status;
 
@@ -365,10 +368,14 @@ process_exit (void) {
 
 		if(curr->fd_table[i]){
 
-			lock_acquire(&file_lock);
-			file_close(curr->fd_table[i]);
-			lock_release(&file_lock);
+			if(t->running_file && t->running_file == curr->fd_table[i]){
 
+			}
+			else{
+				lock_acquire(&file_lock);
+				file_close(curr->fd_table[i]);
+				lock_release(&file_lock);
+			}
 		}
 
 	}
@@ -387,7 +394,7 @@ process_cleanup (void) {
 	lock_acquire(&file_lock);
 
 	if(running_file){
-		file_allow_write(running_file);
+		printf("file now allowed to write\n");
 		file_close(running_file);
 	}
 
@@ -506,7 +513,7 @@ load (const char *file_name,struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 
-	// do file_name parsing
+	/* do file_name parsing */
 	int argc = 0;
 	char * argv[ArgSize];
 
@@ -612,11 +619,12 @@ load (const char *file_name,struct intr_frame *if_) {
 	push_args(if_,argc,argv);
 	success = true;
 
-	//deny writes
 	file_deny_write(file);
 	t->running_file = file;
+	printf("deny write to %s\n ... deny write: %d",thread_current ()->name,file->deny_write);
 
 done:
+	t->running_file = NULL;
 	return success;
 }
 
