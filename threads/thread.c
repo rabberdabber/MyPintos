@@ -203,6 +203,17 @@ void * aux UNUSED){
 	
 	return t1->wakeup_tick < t2->wakeup_tick;
 }
+
+bool 
+thread_order_ready_list(const struct list_elem * a,const struct list_elem * b,
+void * aux UNUSED){
+
+	struct thread * t1  = list_entry(a,struct thread, elem);
+	struct thread * t2 = list_entry(b,struct thread,elem);
+
+	return t1->priority > t2->priority;
+}
+
 /* Change the state of the current thread to BLOCKED if the
 current thread is not idle thread and call schedule () */
 void 
@@ -287,6 +298,10 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	if(priority > running_thread ()->priority){
+		thread_yield();
+	}
+
 	return tid;
 }
 
@@ -320,7 +335,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem,thread_order_ready_list,NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -564,8 +579,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 #endif
 
 	strlcpy (t->name, name, sizeof t->name);
-	sema_init(&t->sema_fork,0);
+	
 	sema_init(&t->sema_wait,0);
+	sema_init(&t->sema_fork,0);
+	sema_init(&t->sema_fork_status,0);
+	sema_init(&t->sema_wait_status,0);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;

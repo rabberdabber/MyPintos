@@ -29,6 +29,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+
 struct lock file_lock;
 
 
@@ -99,10 +103,13 @@ struct thread {
 	bool in_sleep;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list donation_list;
 
 
-	struct semaphore sema_fork;
 	struct semaphore sema_wait;
+	struct semaphore sema_fork;
+	struct semaphore sema_fork_status;
+	struct semaphore sema_wait_status;
 	int exit_status;
 	struct list child;
 	struct list_elem child_elem;
@@ -146,6 +153,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+void thread_run(int priority);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
@@ -158,6 +166,8 @@ void thread_yield (void);
 void thread_wakeup(int64_t curr_tick);
 int thread_get_priority (void);
 void thread_set_priority (int);
+bool thread_order_ready_list(const struct list_elem * a,const struct list_elem * b,
+void * aux UNUSED);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

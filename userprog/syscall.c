@@ -79,8 +79,9 @@ void halt (void){
 	t->exit_status = status;
 	printf("%s: exit(%d)\n",t->name,status);
 
-	/* wake up any waiting parent thread */
+	/* wake up any waiting parent thread  and hold exit_status intact*/
 	sema_up(&t->sema_wait);
+	sema_down(&t->sema_wait_status);
 	
 	thread_exit();
 }
@@ -138,12 +139,12 @@ int exec(const char * file){
 	else{
 		lock_acquire(&file_lock);
 		if(!t->fd_table[fd]){
+			lock_release(&file_lock);
 			exit(-1);
 		}
 		written_sofar = file_write(t->fd_table[fd],buffer,length);
 		lock_release(&file_lock);
 	}
-
 
 	return written_sofar;
 }
@@ -180,6 +181,7 @@ int exec(const char * file){
 	if(fd == STDOUT_FILENO || t->next_fd <= fd || !buffer){
 		exit(-1);
 	}
+
 	// is stdin
 	int read_sofar = 0;
 
@@ -195,12 +197,13 @@ int exec(const char * file){
 	else {
 		lock_acquire(&file_lock);
 		if(!t->fd_table[fd]){
+			lock_release(&file_lock);
 			exit(-1);
 		}
 		read_sofar = file_read(t->fd_table[fd],buffer,length);
 		lock_release(&file_lock);
 	}
-
+	
 	return read_sofar;
 }
 
@@ -219,6 +222,7 @@ int exec(const char * file){
 
 	lock_release(&file_lock);
 
+
 	if(!open_file){
 		return -1;
 	}
@@ -233,7 +237,7 @@ int exec(const char * file){
 
 	struct thread * t = thread_current ();
 
-	// no such open fd
+	/* no such open fd */
 	if(t->next_fd <= fd){
 		exit(-1);
 	}
@@ -290,7 +294,7 @@ int exec(const char * file){
 
 	lock_acquire(&file_lock);
 
-	// if fd available
+	/* if fd available */
 	if(t->fd_table[fd]){
 		file_close(t->fd_table[fd]);
 		t->fd_table[fd] = NULL;

@@ -91,7 +91,6 @@ initd (void * info) {
 		
 	char * file_name =	info;
 
-
 	if (process_exec (file_name) < 0)
 		exit(-1);
 		
@@ -117,10 +116,18 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 
 	struct thread * child_thread = thread_get(tid);
+	list_push_back(&thread_current ()->child,&child_thread->child_elem);
 
-	/* wait for cloning to finish  */
 	sema_down(&child_thread->sema_fork);
 
+	/* failed to duplicate resoures to child */
+	if(child_thread->exit_status < 0){
+		sema_up(&child_thread->sema_fork_status);
+		return TID_ERROR;
+	}
+	
+	/* wakeup child waiting a signal so that exit_status is intact */
+	sema_up(&child_thread->sema_fork_status);
 	return tid;
 
 }
@@ -208,11 +215,19 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 	struct file * running_file = parent->running_file;
+	struct file * fp;
 
 	lock_acquire(&file_lock);
 
 	for(int fd = 2;fd < parent->next_fd;fd++){
-		current->fd_table[fd] = file_duplicate(parent->fd_table[fd]);
+		fp = file_duplicate(parent->fd_table[fd]);
+
+		if(!fp){
+			printf("duplicating file to child failed\n");
+			goto error;
+		}
+
+		current->fd_table[fd] = fp;
 		current->next_fd++;
 
 		if(running_file == parent->fd_table[fd]){
@@ -221,10 +236,12 @@ __do_fork (void *aux) {
 	}
 
 	lock_release(&file_lock);
+	
+	current->exit_status = 0;// cloning succeeded
 
-	/* insert child to parent and wake up forker */
-	list_push_back(&parent->child,&current->child_elem);
+	/* wake forker that waits until resource cloning finishes */
 	sema_up(&current->sema_fork);
+	sema_down(&current->sema_fork_status);
 
 	process_init ();
 
@@ -235,7 +252,10 @@ __do_fork (void *aux) {
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	current->exit_status = -1;
+	sema_up(&current->sema_fork);
+	sema_down(&current->sema_fork_status);
+	exit(-1);
 }
 
 /* Switch the current execution context to the f_name.
@@ -258,10 +278,10 @@ process_exec (void *f_name) {
 
 	
 
-	
+	lock_acquire(&file_lock);
 	/* And then load the binary */
 	success = load (file_name,&_if);
-
+	lock_release(&file_lock);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -313,11 +333,13 @@ process_wait (tid_t child_tid UNUSED) {
 	}
 
 	sema_down(&child->sema_wait);
+	int exit_status = child->exit_status;
 
 	/* no second wait */
 	list_remove(&child->child_elem);
+	sema_up(&child->sema_wait_status);
 	
-	return child->exit_status;
+	return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -503,13 +525,8 @@ load (const char *file_name,struct intr_frame *if_) {
 	}
 
 
-
-	
-
-	lock_acquire(&file_lock);
 	/* Open executable file. */
 	file = filesys_open (exec_name);
-	lock_release(&file_lock);
 
 	if (file == NULL) {
 		printf ("load: %s: open failed\n",exec_name);
