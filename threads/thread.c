@@ -147,6 +147,7 @@ thread_start (void) {
 	sema_down (&idle_started);
 }
 
+
 struct thread * 
 thread_get (tid_t tid) {
 
@@ -273,7 +274,7 @@ thread_create (const char *name, int priority,
 	tid = t->tid = allocate_tid ();
 
 #ifdef USERPROG
-	t->next_fd = 2;
+	t->nextfd = t->maxfd = 2;
 	t->fd_table = (struct file **) palloc_get_multiple(PAL_ZERO,2);
 
 	if(!t->fd_table){
@@ -340,6 +341,18 @@ thread_unblock (struct thread *t) {
 	intr_set_level (old_level);
 }
 
+void
+thread_run(struct thread * t){
+
+	if(t != idle_thread)
+	{
+		if (t->priority > running_thread ()->priority){
+			thread_yield();
+		}
+	}
+
+}
+
 /* Returns the name of the running thread. */
 const char *
 thread_name (void) {
@@ -390,8 +403,11 @@ thread_exit (void) {
 
 /* Yields the CPU.  The current thread is not put to sleep and
    may be scheduled again immediately at the scheduler's whim. */
+/* Yields the CPU.  The current thread is not put to sleep and
+   may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) {
+
 	struct thread *curr = thread_current ();
 	enum intr_level old_level;
 
@@ -399,7 +415,7 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem,thread_order_ready_list,NULL);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -479,8 +495,55 @@ thread_wakeup(int64_t curr_tick) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+
+
+	struct thread * curr_thread = thread_current ();	
+	struct list * donation_list_ptr = &curr_thread->donation_list;
+	struct list * waiters_list;
+	struct list_elem * e;
+	struct list_elem *n;
+	struct lock * tmp;
+	struct thread * t;
+
+	for(e = list_begin(donation_list_ptr);e != list_end(donation_list_ptr);e = list_next(e)){
+		tmp = list_entry(e,struct lock,elem);
+		tmp->priority = tmp->holder_priority = new_priority;
+	
+		waiters_list = &tmp->semaphore.waiters;
+		for(n = list_begin(waiters_list);n != list_end(waiters_list);n = list_next(n)){
+			t = list_entry(n,struct thread,elem);
+			if(t->priority > new_priority){
+				tmp->priority = t->priority;
+				break;
+			}
+		}
+		
+	}
+
+	if(!list_empty(&curr_thread->donation_list)){
+		struct lock * lck = list_entry(list_front(&curr_thread->donation_list),struct lock,elem);
+		lock_update_priority(lck);
+	}
+
+	else{
+		curr_thread->priority = new_priority;
+	}
+
+	// adjust the ready list
+
+	if(!list_empty(&ready_list))
+	{
+		int max_priority = list_entry(list_front(&ready_list),struct thread,elem)->priority;
+
+		if (new_priority < max_priority){
+			thread_yield();
+		}
+
+	}
+	
+
 }
+
 
 /* Returns the current thread's priority. */
 int
@@ -584,6 +647,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->sema_fork,0);
 	sema_init(&t->sema_fork_status,0);
 	sema_init(&t->sema_wait_status,0);
+	list_init(&t->donation_list);
+	t->fork_level = 0;
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;

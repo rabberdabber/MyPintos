@@ -101,6 +101,7 @@ struct thread {
 	int priority;                       /* Priority. */
 	int64_t wakeup_tick;
 	bool in_sleep;
+	void * wait_on_lock;
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 	struct list donation_list;
@@ -112,9 +113,11 @@ struct thread {
 	struct semaphore sema_wait_status;
 	int exit_status;
 	struct list child;
+	int fork_level;
 	struct list_elem child_elem;
 	struct file **fd_table;	// file descriptor table
-	int next_fd; // next_available fd
+	int nextfd; // next_available fd
+	int maxfd; // maximum allocated fd
 	struct file * running_file;
 
 
@@ -153,7 +156,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
-void thread_run(int priority);
+void thread_run(struct thread *t);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);

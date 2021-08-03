@@ -113,8 +113,14 @@ initd (void * info) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* Clone current thread to new thread.*/
+
 	struct threadInfo * info = (struct threadInfo *) palloc_get_page(0);
 	info->t = thread_current ();
+
+	// depth should not be greater than 15
+	if(info->t->fork_level > 15){
+		exit(info->t->fork_level);
+	}
 
 	memcpy(&info->if_,if_,sizeof(struct intr_frame));
 
@@ -123,6 +129,7 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 
 
 	struct thread * child_thread = thread_get(tid);
+	child_thread->fork_level = info->t->fork_level + 1;
 	list_push_back(&thread_current ()->child,&child_thread->child_elem);
 
 	sema_down(&child_thread->sema_fork);
@@ -224,20 +231,23 @@ __do_fork (void *aux) {
 	struct file * fp = NULL;
 
 	lock_acquire(&file_lock);
-	for(int fd = 2;fd < parent->next_fd;fd++){
+	for(int fd = 2;fd < parent->maxfd;fd++){
 
-		if(parent->fd_table[fd])
+		if(parent->fd_table[fd]){
 			fp = file_duplicate(parent->fd_table[fd]);
 
-		if(!fp){
-			printf("duplicating file to child failed\n");
-			lock_release(&file_lock);
-			goto error;
-		}
+			if(!fp){
+				printf("duplicating file to child failed\n");
+				lock_release(&file_lock);
+				goto error;
+			}
 
-		current->fd_table[fd] = fp;
-		current->next_fd++;
+			current->fd_table[fd] = fp;
+			current->nextfd++;
+		}
 	}
+
+	current->maxfd = current->nextfd;
 
 	lock_release(&file_lock);
 
@@ -334,7 +344,6 @@ process_wait (tid_t child_tid UNUSED) {
 		return -1;
 	}
 
-	child->waiting_for_me = true;
 	sema_down(&child->sema_wait);
 	int exit_status = child->exit_status;
 
@@ -345,7 +354,7 @@ process_wait (tid_t child_tid UNUSED) {
 	return exit_status;
 }
 
-/* Exit the process. This function is called by thread_exit (). */
+/* Exit the process. This function is called by it (). */
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
@@ -357,25 +366,17 @@ process_exit (void) {
 	struct list_elem * e;
 	struct thread * t;
 
-	/* remove the children from child list  and close the files */
+	/* removes the children from child list and closes the files */
 	while (!list_empty(&curr->child)) {
 		e = list_pop_front(&curr->child);
 		t = list_entry(e, struct thread, child_elem);
 		list_remove(e);
 	}
 
-	for(int i = 0;i < curr->next_fd;i++){
+	for(int i = 2;i < curr->maxfd;i++){
 
 		if(curr->fd_table[i]){
-
-			if(t->running_file && t->running_file == curr->fd_table[i]){
-
-			}
-			else{
-				lock_acquire(&file_lock);
-				file_close(curr->fd_table[i]);
-				lock_release(&file_lock);
-			}
+			file_close(curr->fd_table[i]);
 		}
 
 	}
@@ -388,17 +389,6 @@ process_exit (void) {
 static void
 process_cleanup (void) {
 	struct thread *curr = thread_current ();
-
-	struct file * running_file = curr->running_file;
-
-	lock_acquire(&file_lock);
-
-	if(running_file){
-		printf("file now allowed to write\n");
-		file_close(running_file);
-	}
-
-	lock_release(&file_lock);
 
 #ifdef VM
 	supplemental_page_table_kill (&curr->spt);
@@ -537,6 +527,7 @@ load (const char *file_name,struct intr_frame *if_) {
 
 	if (file == NULL) {
 		printf ("load: %s: open failed\n",exec_name);
+		t->running_file = file;
 		goto done;
 	}
 
@@ -619,12 +610,17 @@ load (const char *file_name,struct intr_frame *if_) {
 	push_args(if_,argc,argv);
 	success = true;
 
-	file_deny_write(file);
+	struct inode *inode = file_get_inode(file);
+	int deny_write_cnt = inode_get_deny_write_cnt(inode);
+
+	/* the file is already read only */
+	if(deny_write_cnt == 0){
+		file_deny_write(file);
+	}
+
 	t->running_file = file;
-	printf("deny write to %s\n ... deny write: %d",thread_current ()->name,file->deny_write);
 
 done:
-	t->running_file = NULL;
 	return success;
 }
 
