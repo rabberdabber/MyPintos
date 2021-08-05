@@ -669,6 +669,62 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 	return true;
 }
 
+
+static uintptr_t 
+push_stack(uintptr_t *rsp,void * ptr,int size){
+
+	*rsp -= size;
+	memcpy((void *) (*rsp),ptr,size);
+	return *rsp;
+
+}
+
+static void
+push_args(struct intr_frame *if_,int argc,char ** argv){
+
+	int tmp,size,tot_size = 0,word_align;
+	uintptr_t * rsp = ((uintptr_t *)(&if_->rsp));
+	char ** addr;
+	uintptr_t addrArr[argc];
+	
+	tmp = argc - 1;
+	
+	/* setup the arguments in the stack pointer rsp */
+	while(tmp >= 0){
+		size = strlen(argv[tmp]) + 1;
+		tot_size += size;
+		addrArr[tmp] = push_stack(rsp,argv[tmp],size);
+		tmp--;
+	}
+
+	/* align to 8 bytes */
+	word_align = if_->rsp%8;
+	*rsp -= word_align;
+	memset((void *) (*rsp),0,word_align);
+
+	/* append NULL to rsp (last element in argv) */
+	size = sizeof(char *);
+	*rsp -= size;
+	memset((void *)(*rsp),0,size);
+
+	tmp = argc - 1;
+	/* setup the argument address in the stack pointer rsp */
+	while(tmp >= 0){
+		push_stack(rsp,&addrArr[tmp],sizeof(uintptr_t));
+		tmp--;
+	}
+
+	if_->R.rsi = if_->rsp;
+	if_->R.rdi = argc;
+
+	/* append the return address NULL */
+	size = sizeof(void (*) ());
+	*rsp -= size;
+	memset((void *)(*rsp),0,size);
+
+}
+
+
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
  * If you want to implement the function for whole project 2, implement it
@@ -731,60 +787,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		upage += PGSIZE;
 	}
 	return true;
-}
-
-static uintptr_t 
-push_stack(uintptr_t *rsp,void * ptr,int size){
-
-	*rsp -= size;
-	memcpy((void *) (*rsp),ptr,size);
-	return *rsp;
-
-}
-
-static void
-push_args(struct intr_frame *if_,int argc,char ** argv){
-
-	int tmp,size,tot_size = 0,word_align;
-	uintptr_t * rsp = ((uintptr_t *)(&if_->rsp));
-	char ** addr;
-	uintptr_t addrArr[argc];
-	
-	tmp = argc - 1;
-	
-	/* setup the arguments in the stack pointer rsp */
-	while(tmp >= 0){
-		size = strlen(argv[tmp]) + 1;
-		tot_size += size;
-		addrArr[tmp] = push_stack(rsp,argv[tmp],size);
-		tmp--;
-	}
-
-	/* align to 8 bytes */
-	word_align = if_->rsp%8;
-	*rsp -= word_align;
-	memset((void *) (*rsp),0,word_align);
-
-	/* append NULL to rsp (last element in argv) */
-	size = sizeof(char *);
-	*rsp -= size;
-	memset((void *)(*rsp),0,size);
-
-	tmp = argc - 1;
-	/* setup the argument address in the stack pointer rsp */
-	while(tmp >= 0){
-		push_stack(rsp,&addrArr[tmp],sizeof(uintptr_t));
-		tmp--;
-	}
-
-	if_->R.rsi = if_->rsp;
-	if_->R.rdi = argc;
-
-	/* append the return address NULL */
-	size = sizeof(void (*) ());
-	*rsp -= size;
-	memset((void *)(*rsp),0,size);
-
 }
 
 
