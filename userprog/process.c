@@ -40,7 +40,6 @@ struct file {
 };
 
 
-
 static void process_cleanup (void);
 static bool load (const char *file_name,struct intr_frame *if_);
 static void initd (void *f_name);
@@ -51,7 +50,21 @@ static void push_args(struct intr_frame *if_,int argc,char ** argv);
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
-	struct thread *current = thread_current ();
+	struct thread *t = thread_current ();
+
+	t->fd_list_ptr = (struct list *)malloc(sizeof(struct list));
+	list_init(t->fd_list_ptr);
+
+	/* initialize stdin and stdout */
+	struct fd_info *fd_info_in = malloc(sizeof(struct fd_info));
+	struct fd_info *fd_info_out = malloc(sizeof(struct fd_info));
+
+	fd_info_in->fd_num = fd_info_in->converted_fd_num = STDIN_FILENO;
+	fd_info_out->fd_num = fd_info_out->converted_fd_num =  STDOUT_FILENO;
+	fd_info_in->fd_same_file = fd_info_out->fd_same_file = -1;
+	fd_info_in->stdio_shutdown = fd_info_out->stdio_shutdown = false;
+	list_push_front(t->fd_list_ptr, &fd_info_in->fd_elem);
+	list_push_front(t->fd_list_ptr, &fd_info_out->fd_elem);
 }
 
 
@@ -247,7 +260,8 @@ __do_fork (void *aux) {
 		}
 	}
 
-	current->maxfd = current->nextfd;
+	current->nextfd = parent->nextfd;
+	current->maxfd = parent->maxfd;
 
 	lock_release(&file_lock);
 
@@ -259,6 +273,24 @@ __do_fork (void *aux) {
 	sema_down(&current->sema_fork_status);
 
 	process_init ();
+
+	struct list *fd_list_ptr = info->t->fd_list_ptr;
+	struct list_elem *e;
+	struct fd_info *fd_info_ptr;
+
+	list_init(current->fd_list_ptr);
+
+	for (e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
+	{
+		fd_info_ptr = list_entry(e, struct fd_info, fd_elem);
+
+		struct fd_info *ptr = malloc(sizeof(struct fd_info));
+		ptr->fd_num = fd_info_ptr->fd_num;
+		ptr->converted_fd_num = fd_info_ptr->converted_fd_num;
+		ptr->fd_same_file = fd_info_ptr->fd_same_file;
+		ptr->stdio_shutdown = fd_info_ptr->stdio_shutdown;
+		list_push_front(current->fd_list_ptr, &ptr->fd_elem);
+	}
 
 	palloc_free_page(info);
 
@@ -365,6 +397,8 @@ process_exit (void) {
 
 	struct list_elem * e;
 	struct thread * t;
+	struct fd_info * fd_info_ptr;
+
 
 	/* removes the children from child list and closes the files */
 	while (!list_empty(&curr->child)) {
@@ -373,10 +407,21 @@ process_exit (void) {
 		list_remove(e);
 	}
 
+	if(curr->fd_list_ptr){
+		while(!list_empty(curr->fd_list_ptr)){
+			e = list_pop_front(curr->fd_list_ptr);
+			fd_info_ptr = list_entry(e,struct fd_info,fd_elem);
+			list_remove(e);
+			free(fd_info_ptr);
+		}
+		free(curr->fd_list_ptr);
+		curr->fd_list_ptr = NULL;
+	}
+
 	for(int i = 2;i < curr->maxfd;i++){
 
 		if(curr->fd_table[i]){
-			file_close(curr->fd_table[i]);
+			//file_close(curr->fd_table[i]);
 		}
 
 	}

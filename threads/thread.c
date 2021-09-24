@@ -268,7 +268,6 @@ thread_create (const char *name, int priority,
 	t = palloc_get_page (PAL_ZERO);
 	if (t == NULL)
 		return TID_ERROR;
-
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
@@ -648,6 +647,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->sema_fork_status,0);
 	sema_init(&t->sema_wait_status,0);
 	list_init(&t->donation_list);
+
+	#ifdef USERPROG
+		t->fd_list_ptr = NULL;
+    #endif // DEBUG
+	
+
 	t->fork_level = 0;
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;

@@ -16,10 +16,12 @@
 #include "userprog/process.h"
 #include "threads/palloc.h"
 
-#define MAXFD 256
+#define MAXFD 128
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+void close_stdio(bool is_stdin);
+
 
 /* An open file. */
 struct file {
@@ -29,6 +31,9 @@ struct file {
 };
 
 
+void remove_fd_info(struct fd_info * fd_info_ptr);
+void modify_fd_infos(int newfd);
+struct fd_info * get_fd_info(int fd);
 static pid_t fork_ (const char *thread_name,struct intr_frame * if_);
 
 /* System call.
@@ -73,10 +78,7 @@ static void is_valid_addr(void * addr){
 		exit(-1);
 	}
 
-
-	
 }
-
 
 void halt (void){
 	power_off();
@@ -145,29 +147,54 @@ int exec(const char * file){
 
  int write (int fd, const void *buffer, unsigned length){
 
+	if(fd < 0){
+		return -1;
+	}
 
 	int written_sofar = 0;
 	struct thread *t = thread_current ();
 	struct file * file_p;
+	struct fd_info * fd_info_ptr;
+	struct fd_info * fd_info_ptr_1;
+	struct fd_info * info_ptr;
+	info_ptr = get_fd_info(fd);
 
-	if(fd == STDIN_FILENO || t->maxfd <= fd || !buffer){
+	if(fd == STDIN_FILENO || !info_ptr || !buffer){
 		exit(-1);
 	}
 
+	fd_info_ptr = get_fd_info(STDOUT_FILENO);
+
 	if(fd == STDOUT_FILENO){
+		if(fd_info_ptr && fd_info_ptr->stdio_shutdown){
+			return 0; // stdout closed
+		}
+	}
+
+	fd_info_ptr_1 = get_fd_info(fd_info_ptr->fd_same_file);
+	
+
+	/* if fd is STDOUT or stdout dup2 */
+	if((fd == STDOUT_FILENO && info_ptr->fd_same_file == -1) || info_ptr->fd_same_file == STDOUT_FILENO){
 			putbuf(buffer,length);
 			return length;
 	}
 
 	else{
 		lock_acquire(&file_lock);
-		if(!t->fd_table[fd]){
+		if(fd != STDOUT_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
 			lock_release(&file_lock);
 			exit(-1);
 		}
 
-		file_p = t->fd_table[fd];
-		written_sofar = file_write(t->fd_table[fd],buffer,length);
+		if(fd == STDOUT_FILENO){
+			file_p = t->fd_table[fd_info_ptr->fd_same_file];
+		}
+		else{
+			file_p = t->fd_table[info_ptr->converted_fd_num];
+		}
+		
+		written_sofar = file_write(file_p,buffer,length);
 
 		lock_release(&file_lock);
 	}
@@ -203,17 +230,33 @@ int exec(const char * file){
  int read (int fd, void *buffer, unsigned length){
 
 	struct thread * t = thread_current ();
+	struct fd_info * fd_info_ptr;
+	struct fd_info * info_ptr = get_fd_info(fd);
+	struct file * file_p;
 
-	if(fd == STDOUT_FILENO || t->maxfd <= fd || !buffer){
+	if(!info_ptr){
+		return -1;
+	}
+
+	if(fd == STDOUT_FILENO || !info_ptr || !buffer){
 		exit(-1);
+	}
+
+	fd_info_ptr = get_fd_info(STDIN_FILENO);
+
+	if(fd == STDIN_FILENO){
+		if(fd_info_ptr && fd_info_ptr->stdio_shutdown){
+			return 0; // stdin closed
+		}
 	}
 
 	// is stdin
 	int read_sofar = 0;
+	
+	/* if fd is STDIN or STDIN dup2 */
+	if((fd == STDIN_FILENO && info_ptr->fd_same_file == -1) || info_ptr->fd_same_file == STDIN_FILENO){
 
-	if(fd == STDIN_FILENO){
-
-	/*	while(read_sofar < length){
+	 /* while(read_sofar < length){
 			((char *)buffer)[read_sofar] = input_getc();
 			read_sofar++;
 		}*/
@@ -223,11 +266,20 @@ int exec(const char * file){
 
 	else {
 		lock_acquire(&file_lock);
-		if(!t->fd_table[fd]){
+		if(fd != STDIN_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
 			lock_release(&file_lock);
 			exit(-1);
 		}
-		read_sofar = file_read(t->fd_table[fd],buffer,length);
+
+		if(fd == STDIN_FILENO){
+			file_p = t->fd_table[fd_info_ptr->fd_same_file];
+		}
+		else{
+			file_p = t->fd_table[info_ptr->converted_fd_num];
+		}
+		
+		read_sofar = file_read(file_p,buffer,length);
+
 		lock_release(&file_lock);
 	}
 	
@@ -237,6 +289,7 @@ int exec(const char * file){
  int open (const char *file){
 
 	struct thread * t = thread_current ();
+	struct list * fd_list_ptr = t->fd_list_ptr;
 
 	if(!file){
 		exit(-1);
@@ -266,6 +319,10 @@ int exec(const char * file){
 		t->maxfd = t->nextfd;
 	}
 
+	struct fd_info *fd_info_ptr = malloc(sizeof(struct fd_info));
+	fd_info_ptr->fd_num = fd_info_ptr->converted_fd_num =  fd;
+	fd_info_ptr->fd_same_file = -1;
+	list_push_front(fd_list_ptr, &fd_info_ptr->fd_elem);	
 	return fd;
 
 }
@@ -273,14 +330,19 @@ int exec(const char * file){
  int filesize (int fd){
 
 	struct thread * t = thread_current ();
+	struct fd_info * info_ptr = get_fd_info(fd);
+
+	if(fd < 0){
+		return -1;
+	}
 
 	/* no such open fd */
-	if(t->maxfd <= fd){
+	if(!info_ptr){
 		exit(-1);
 	}
 
 	lock_acquire(&file_lock);
-	off_t size = file_length(t->fd_table[fd]);
+	off_t size = file_length(t->fd_table[info_ptr->converted_fd_num]);
 	lock_release(&file_lock);
 
 	return size;
@@ -289,15 +351,17 @@ int exec(const char * file){
  void seek (int fd, unsigned position){
 
 	struct thread * t = thread_current ();
+	struct fd_info * info_ptr = get_fd_info(fd);
 
-	if(t->maxfd <= fd){
-		exit(-1);
+
+	if(!info_ptr){
+		return;
 	}
 
 	lock_acquire(&file_lock);
 
-	if(t->fd_table[fd]){
-		file_seek(t->fd_table[fd],position);
+	if(t->fd_table[info_ptr->converted_fd_num]){
+		file_seek(t->fd_table[info_ptr->converted_fd_num],position);
 	}
 
 	lock_release(&file_lock);
@@ -305,16 +369,18 @@ int exec(const char * file){
 
  unsigned tell (int fd){
 	struct thread * t = thread_current ();
+	struct fd_info * info_ptr = get_fd_info(fd);
 	off_t pos = 0;
 
-	if(t->maxfd <= fd){
+
+	if(!info_ptr){
 		exit(-1);
 	}
 
 	lock_acquire(&file_lock);
 
-	if(t->fd_table[fd])
-		pos = file_tell(t->fd_table[fd]);
+	if(t->fd_table[info_ptr->converted_fd_num])
+		pos = file_tell(t->fd_table[info_ptr->converted_fd_num]);
 		
 	lock_release(&file_lock);
 
@@ -322,26 +388,284 @@ int exec(const char * file){
 
 }
 
+ void remove_fd_info(struct fd_info * fd_info_ptr){
+	 struct thread * t = thread_current ();
+	 struct list * fd_list_ptr = t->fd_list_ptr;
+			
+	/* remove the fd_info from the fd list */
+	if(list_front(fd_list_ptr) == &fd_info_ptr->fd_elem)
+	{
+		list_pop_front(fd_list_ptr);
+	}
+	else if(list_back(fd_list_ptr) == &fd_info_ptr->fd_elem)
+	{
+		list_pop_back(fd_list_ptr);
+	}
+	else
+	{
+		list_remove(&fd_info_ptr->fd_elem);
+	}
+
+			
+ }
+
+ void modify_fd_infos(int newfd){
+
+	 	struct thread * t = thread_current ();
+		struct list * fd_list_ptr = t->fd_list_ptr;
+		struct list_elem * e;
+		struct fd_info * fd_info_ptr;
+		struct fd_info * newfd_info_ptr = get_fd_info(newfd);
+		struct file * tmp_file = NULL;
+		int index = 0;
+
+	 	/* scan the fd list */
+		for(e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
+		{
+			fd_info_ptr = list_entry(e,struct fd_info,fd_elem);
+
+			if(newfd == fd_info_ptr->fd_num)
+			{
+				remove_fd_info(fd_info_ptr);
+			}
+
+			/* Find the first neighbor file descriptor of fd 
+			   And set it as the new fd source */
+			if(newfd == fd_info_ptr->fd_same_file && tmp_file == NULL){
+				tmp_file = t->fd_table[newfd_info_ptr->converted_fd_num];
+
+				index = fd_info_ptr->fd_num;
+
+				t->fd_table[fd_info_ptr->converted_fd_num] = tmp_file;
+				if(newfd > STDOUT_FILENO){
+					fd_info_ptr->fd_same_file = -1; // source
+				}
+			
+			}
+		}
+
+		/* found neighbor */
+		if(tmp_file || newfd == STDIN_FILENO || newfd == STDOUT_FILENO){
+
+			for(e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
+			{
+				/* Set the fd_info of other neighbors */
+				if(newfd == fd_info_ptr->fd_same_file)
+				{
+					t->fd_table[fd_info_ptr->converted_fd_num] = tmp_file;
+					fd_info_ptr->fd_same_file = index;
+				}
+			}
+
+		}
+
+
+
+		
+ }
  void close (int fd){
 
 	struct thread * t = thread_current ();
 	struct file * file_p;
+	struct list_elem * e;
+	struct fd_info * fd_info_ptr = get_fd_info(fd);
+	struct file * tmp_file = NULL;
+	int index = 0;
 
-	if(t->maxfd <= fd){
+	if(!fd_info_ptr){
 		exit(-1);
 	}
 
+	if(fd == STDIN_FILENO){
+		close_stdio(true);
+		return;
+	}
+	else if(fd == STDOUT_FILENO){
+		close_stdio(false);
+		return;
+	}
+
+
 	lock_acquire(&file_lock);
+
 	/* if fd available */
-	if(t->fd_table[fd]){
-		file_p = t->fd_table[fd];
-		file_close(file_p);
-		t->fd_table[fd] = NULL;
-		t->nextfd = fd;
+	if(t->fd_table[fd_info_ptr->converted_fd_num]){
+		file_p = t->fd_table[fd_info_ptr->converted_fd_num];
+		
+		modify_fd_infos(fd);
+		t->fd_table[fd_info_ptr->converted_fd_num] = NULL;
+		t->nextfd = fd_info_ptr->converted_fd_num;
 	}
 	lock_release(&file_lock);
 
 }
+
+void close_stdio(bool is_stdin){
+	struct fd_info * fd_info_ptr;
+	if(is_stdin){
+		fd_info_ptr = get_fd_info(STDIN_FILENO);
+		fd_info_ptr->stdio_shutdown = true;
+	}
+	else{
+		fd_info_ptr = get_fd_info(STDOUT_FILENO);
+		fd_info_ptr->stdio_shutdown = true;
+	}
+	
+}
+
+
+struct fd_info * get_fd_info(int fd){
+	struct list_elem * e;
+	struct fd_info * fd_info_ptr;
+	struct thread * t = thread_current ();
+	struct list * fd_list_ptr = t->fd_list_ptr;
+	int converted_fd = fd;
+
+
+	for(e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e)){
+		fd_info_ptr = list_entry(e,struct fd_info,fd_elem);
+
+		if(fd_info_ptr->fd_num == fd)
+			return fd_info_ptr;
+	}
+
+	return NULL;
+}
+
+static void dup2_logger(int oldfd,int newfd){
+	struct thread * t = thread_current ();
+	struct list * fd_list_ptr = t->fd_list_ptr;
+	printf("dup2(oldfd:%d,newfd:%d\n",oldfd,newfd);
+	struct list_elem * e;
+	struct fd_info * fd_info_ptr;
+
+	printf("printing fd_list\n");
+	for (e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
+	{
+		fd_info_ptr = list_entry(e, struct fd_info, fd_elem);
+
+		printf("fd_info_ptr->fd_num:%d\n",fd_info_ptr->fd_num);
+		printf("fd_info_ptr->fd_same_file:%d\n",fd_info_ptr->fd_same_file);
+		printf("fd_info_ptr->converted_fd_num:%d\n",fd_info_ptr->converted_fd_num);
+		printf("fd_info_ptr->stdio_shutdown:%d\n",fd_info_ptr->stdio_shutdown);
+
+	}
+
+
+}
+
+int dup2(int oldfd, int newfd){
+	struct thread * t = thread_current ();
+	struct list * fd_list_ptr = t->fd_list_ptr;
+	struct file * new_file;
+	struct list_elem * e;
+	struct fd_info * fd_info_ptr;
+	struct fd_info * oldfd_info_ptr;
+
+	/* initialize the newfd info ptr */
+	struct fd_info * newfd_info_ptr =  malloc(sizeof(struct fd_info));
+	newfd_info_ptr->fd_num =  newfd_info_ptr->converted_fd_num =  newfd;
+	newfd_info_ptr->stdio_shutdown = false;
+	newfd_info_ptr->fd_same_file = oldfd;
+
+	if(newfd >= MAXFD){
+		newfd_info_ptr->converted_fd_num = t->nextfd;
+		t->nextfd++;
+	}
+
+	/* if not valid fds */
+	if(oldfd < 0 || newfd < 0 || t->maxfd >= MAXFD){
+		return -1;
+	}
+
+
+	if(newfd == t->nextfd){
+		t->nextfd++;
+		/* find next available slot */
+		while(t->fd_table[t->nextfd]){
+			t->nextfd++;
+		}
+	}
+
+	oldfd_info_ptr = get_fd_info(oldfd);
+
+	if(!oldfd_info_ptr){
+		return -1;
+	}
+
+	/* close stdin or stdout if newfd is stdin or stdout */
+	if(newfd == STDOUT_FILENO &&  oldfd_info_ptr->fd_same_file != STDOUT_FILENO){
+		close_stdio(false);
+	}
+
+	/* open stdout */
+	else if(newfd == STDOUT_FILENO){
+		struct fd_info * ptr = get_fd_info(STDOUT_FILENO);
+		ptr->stdio_shutdown = false;
+	}
+
+	if(newfd == STDIN_FILENO && oldfd_info_ptr->fd_same_file != STDIN_FILENO){
+		close_stdio(true);
+	}
+
+	else if(newfd == STDIN_FILENO){
+		struct fd_info * ptr = get_fd_info(STDIN_FILENO);
+		ptr->stdio_shutdown = false;
+	}
+
+	/* oldfd is a valid fd */
+	if(t->fd_table[oldfd_info_ptr->converted_fd_num] || oldfd_info_ptr->fd_same_file == STDOUT_FILENO || oldfd_info_ptr->fd_same_file == STDIN_FILENO || oldfd <= STDOUT_FILENO){
+
+		/* Do nothing */
+		if(oldfd == newfd){
+			return newfd;
+		}
+
+		if(oldfd_info_ptr->fd_same_file == STDOUT_FILENO || oldfd_info_ptr->fd_same_file == STDIN_FILENO){
+			int fd_num = oldfd_info_ptr->fd_same_file;
+			fd_info_ptr = get_fd_info(fd_num);
+			fd_info_ptr->fd_same_file = -1;
+			return newfd;
+		}
+
+		for (e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
+		{
+			fd_info_ptr = list_entry(e, struct fd_info, fd_elem);
+
+			// newfd was being used
+			if (fd_info_ptr->fd_num == newfd)
+			{
+
+				// Is fd source
+				if (fd_info_ptr->fd_same_file == -1)
+				{
+					modify_fd_infos(newfd);
+					list_push_back(fd_list_ptr, &fd_info_ptr->fd_elem);
+				}
+				
+				
+				t->fd_table[fd_info_ptr->converted_fd_num] = t->fd_table[oldfd_info_ptr->converted_fd_num];
+				
+	
+				fd_info_ptr->fd_same_file = oldfd;
+				return newfd;
+			}
+		}
+
+		t->fd_table[newfd_info_ptr->converted_fd_num] = t->fd_table[oldfd_info_ptr->converted_fd_num];
+		list_push_front(fd_list_ptr, &newfd_info_ptr->fd_elem);
+
+	}
+
+
+	/* Not a valid fd */
+	else{
+		return -1;
+	}
+
+	return newfd;
+}
+
 
 
 
@@ -418,6 +742,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		break;
 
 	case SYS_DUP2:
+		f->R.rax = dup2(f->R.rdi,f->R.rsi);
 		break;
 	
 	default:

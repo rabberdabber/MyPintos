@@ -33,9 +33,6 @@
 #include "threads/thread.h"
 
 
-void
-lock_update_priority(struct lock * lock);
-
 static bool
 cond_order_sem_list(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
 

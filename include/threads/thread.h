@@ -125,6 +125,7 @@ struct thread {
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
+	struct list * fd_list_ptr;
 
 #endif
 #ifdef VM
@@ -143,6 +144,16 @@ struct thread {
 extern bool thread_mlfqs;
 
 struct lock file_lock;
+
+/* Represents the FD and the FD it is pointing to */
+struct fd_info
+{
+	int fd_num;
+	int converted_fd_num;
+	int fd_same_file;
+	struct list_elem fd_elem;
+	bool stdio_shutdown;
+};
 
 void thread_init (void);
 void thread_start (void);
