@@ -107,6 +107,7 @@ struct thread {
 	struct list donation_list;
 
 	bool waiting_for_me;
+	bool is_child;
 	struct semaphore sema_wait;
 	struct semaphore sema_fork;
 	struct semaphore sema_fork_status;
@@ -122,6 +123,7 @@ struct thread {
 
 
 
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -131,6 +133,7 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	uintptr_t rsp;
 #endif
 
 	/* Owned by thread.c. */

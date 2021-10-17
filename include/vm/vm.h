@@ -2,6 +2,9 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include <hash.h>
+#include <string.h>
+
 
 enum vm_type {
 	/* page not initialized */
@@ -34,6 +37,7 @@ enum vm_type {
 struct page_operations;
 struct thread;
 
+
 #define VM_TYPE(type) ((type) & 7)
 
 /* The representation of "page".
@@ -57,6 +61,8 @@ struct page {
 		struct page_cache page_cache;
 #endif
 	};
+	struct hash_elem elem;
+	bool writable;
 };
 
 /* The representation of "frame" */
@@ -81,10 +87,19 @@ struct page_operations {
 #define destroy(page) \
 	if ((page)->operations->destroy) (page)->operations->destroy (page)
 
+
 /* Representation of current process's memory space.
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	struct hash * hash_table;
+};
+
+struct lazyLoadInfo {
+	int read_bytes;
+	int zero_bytes;
+	int curr_offset;
+	struct file * file_to_load;
 };
 
 #include "threads/thread.h"

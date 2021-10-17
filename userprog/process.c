@@ -32,12 +32,15 @@ struct threadInfo {
 	struct intr_frame if_;
 };
 
+
 /* An open file. */
 struct file {
 	struct inode *inode;        /* File's inode. */
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
 };
+
+
 
 
 static void process_cleanup (void);
@@ -84,6 +87,7 @@ process_create_initd (const char *file_name) {
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
+	
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
@@ -141,7 +145,9 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 			PRI_DEFAULT, __do_fork,info);
 
 
+
 	struct thread * child_thread = thread_get(tid);
+	child_thread->is_child = true;
 	child_thread->fork_level = info->t->fork_level + 1;
 	list_push_back(&thread_current ()->child,&child_thread->child_elem);
 
@@ -229,8 +235,12 @@ __do_fork (void *aux) {
 
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
+
 	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
-		goto error;
+	{
+			printf("failed to copy supplemental page table to child\n");
+			goto error;
+	}
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
 		goto error;
@@ -311,7 +321,6 @@ int
 process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
-
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -333,6 +342,7 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 
 	if (!success){
+		printf("load: failed\n");
 		exit(-1);
 	}
 
@@ -570,6 +580,8 @@ load (const char *file_name,struct intr_frame *if_) {
 	/* Open executable file. */
 	file = filesys_open (exec_name);
 
+	
+
 	if (file == NULL) {
 		printf ("load: %s: open failed\n",exec_name);
 		t->running_file = file;
@@ -590,6 +602,7 @@ load (const char *file_name,struct intr_frame *if_) {
 
 	/* Read program headers. */
 	file_ofs = ehdr.e_phoff;
+
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		struct Phdr phdr;
 
@@ -617,6 +630,7 @@ load (const char *file_name,struct intr_frame *if_) {
 					bool writable = (phdr.p_flags & PF_W) != 0;
 					uint64_t file_page = phdr.p_offset & ~PGMASK;
 					uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
+					//printf("vaddr is %p\n",phdr.p_vaddr);
 					uint64_t page_offset = phdr.p_vaddr & PGMASK;
 					uint32_t read_bytes, zero_bytes;
 					if (phdr.p_filesz > 0) {
@@ -632,8 +646,11 @@ load (const char *file_name,struct intr_frame *if_) {
 						zero_bytes = ROUND_UP (page_offset + phdr.p_memsz, PGSIZE);
 					}
 					if (!load_segment (file, file_page, (void *) mem_page,
-								read_bytes, zero_bytes, writable))
-						goto done;
+								read_bytes, zero_bytes, writable)){
+									printf("load_segment: failed\n");
+									goto done;
+					}
+											
 				}
 				else
 					goto done;
@@ -644,6 +661,7 @@ load (const char *file_name,struct intr_frame *if_) {
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
+	
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
@@ -766,7 +784,6 @@ push_args(struct intr_frame *if_,int argc,char ** argv){
 	size = sizeof(void (*) ());
 	*rsp -= size;
 	memset((void *)(*rsp),0,size);
-
 }
 
 
@@ -881,6 +898,22 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+	ASSERT(page && aux);
+	struct lazyLoadInfo * info = (struct lazyLoadInfo *)aux;
+	ASSERT(info->read_bytes <= PGSIZE && info->zero_bytes <= PGSIZE);
+
+	off_t read_bytes;
+	
+	read_bytes = file_read(info->file_to_load,page->va,info->read_bytes);
+
+	if(read_bytes != info->read_bytes){
+		printf("lazy_load_segment: could not read properly\n");
+		return false;
+	}
+
+	memset(page->va + read_bytes,0,info->zero_bytes);
+	
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -904,6 +937,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+
+	off_t curr_offset = ofs;
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -912,30 +947,51 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
-			return false;
+		
+		struct lazyLoadInfo * aux = (struct lazyLoadInfo *) malloc(sizeof(struct lazyLoadInfo));
+		aux->file_to_load = file_reopen(file);
 
+		if(!aux->file_to_load){
+			printf("could not open the file to load\n");
+		}
+		aux->curr_offset = curr_offset;
+		aux->read_bytes = page_read_bytes;
+		aux->zero_bytes = page_zero_bytes;
+		curr_offset += PGSIZE;
+		file_seek(aux->file_to_load,aux->curr_offset);
+
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+					writable, lazy_load_segment, aux)){
+
+			printf("thread_name: %s\n",thread_name());
+			printf("vm_alloc_page_with_initializer: failed\n");
+			return false;
+		}
+			
+			
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
 	}
+
 	return true;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	bool success = false;
+	bool success = true;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
 
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
+	if(!vm_alloc_page(VM_ANON | VM_MARKER_0,stack_bottom,true) || !vm_claim_page(stack_bottom))
+		success = false;
 
+	if_->rsp = USER_STACK;
 	return success;
 }
 #endif /* VM */

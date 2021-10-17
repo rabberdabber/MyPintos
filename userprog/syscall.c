@@ -74,9 +74,11 @@ static void is_valid_addr(void * addr){
 
 	uint64_t *pte = pml4e_walk(thread_current ()->pml4,(const uint64_t) addr,0);
 
-	if(!pte || !pml4_get_page(thread_current ()->pml4,(const void *)addr)){
+	if(!pte && !pml4_get_page(thread_current ()->pml4,(const void *)addr)){
+		//maprintf("whoa whoa \n");
 		exit(-1);
 	}
+	
 
 }
 
@@ -126,10 +128,10 @@ void halt (void){
 
 int exec(const char * file){
 	char * fn_copy = palloc_get_page (0);
+
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file, PGSIZE);
-
     process_exec(fn_copy);
 
 	exit(-1);// if process_exec bypassed
