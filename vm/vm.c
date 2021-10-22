@@ -176,10 +176,11 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-	void * current_sp = thread_current ()->rsp;
-	void * updated_sp = pg_round_down(addr);
-	int alloc_pg_size = pg_no(current_sp)-pg_no(updated_sp);
-	int curr_stk_pg_size = pg_no(USER_STACK)-pg_no(current_sp);
+	void * curr_stk_bottom = thread_current ()->stk_bottom;
+	void * new_stk_bottom = pg_round_down(addr);
+	
+	int alloc_pg_size = pg_no(curr_stk_bottom)-pg_no(new_stk_bottom);
+	int curr_stk_pg_size = pg_no(USER_STACK)-pg_no(new_stk_bottom);
 
 	/* if the stack size would be above 1 MB */
 	if(curr_stk_pg_size + alloc_pg_size > (MAX_STK_PG_SIZE-1)){
@@ -188,20 +189,23 @@ vm_stack_growth (void *addr UNUSED) {
 	}
 
 	while(alloc_pg_size){
-		current_sp -= PGSIZE;
-		if(!vm_alloc_page(VM_ANON | VM_MARKER_0,current_sp,true)){
-			printf("could not extend stack page %p\n",current_sp);
-			thread_current ()->rsp = current_sp + PGSIZE;
-			vm_claim_page(current_sp + PGSIZE);
+		curr_stk_bottom -= PGSIZE;
+		if(!vm_alloc_page(VM_ANON | VM_MARKER_0,curr_stk_bottom,true)){
+			printf("could not extend stack page %p\n",curr_stk_bottom);
+			thread_current ()->rsp = curr_stk_bottom + PGSIZE;
+			vm_claim_page(curr_stk_bottom + PGSIZE);
 			return;
 		}
+		
 		alloc_pg_size--;
 	}
 
-	/* claim only the stack pointer page for now */
-	vm_claim_page(current_sp);
-	thread_current ()->rsp = current_sp;
+	if(alloc_pg_size){
+		vm_claim_page(curr_stk_bottom);
+	}
+	thread_current ()->stk_bottom = curr_stk_bottom;
 }
+
 
 /* Handle the fault on write_protected page */
 static bool
@@ -222,14 +226,14 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(spt,addr);
 	
 	if(!page){
+		void * curr_stk_bottom = thread_current ()->stk_bottom;
+		void * new_stk_bottom;
 		vm_stack_growth(addr);
-		return thread_current ()->rsp == pg_round_down(addr);
+
+		new_stk_bottom = thread_current ()->stk_bottom;
+		return curr_stk_bottom != new_stk_bottom;
 	}
 	
-	if(!page){
-		printf("could not find the page with va:%p\n",addr);
-		return false;
-	}
 	
 	if(write && !not_present)
 		return false;
@@ -253,6 +257,7 @@ vm_claim_page (void *va UNUSED) {
 	page = spt_find_page(&thread_current ()->spt,va);
 
 	if(!page){
+		printf("vm_claim_page: page is not found in spt\n");
 		return false;
 	}
 
@@ -276,6 +281,7 @@ vm_do_claim_page (struct page *page) {
 	/* check if va is mapped */
 	if(pml4_get_page(t->pml4,page->va) != NULL ||
 	   !pml4_set_page(t->pml4,page->va,frame->kva,page->writable)){
+		printf("va is already in pml4 mapping\n");
 		return false;
 
 	}
@@ -347,7 +353,7 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 					return false;
 				}
 
-				if(!vm_claim_page(child_page)){
+				if(!vm_claim_page(child_page->va)){
 					printf("could not claim page\n");
 					return false;
 				}
@@ -362,12 +368,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 			default:
 				break;
 		}
-		
-
 	}
 
-	return true;
-		
+	return true;	
 }
 
 
@@ -385,7 +388,10 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 
-	//hash_destroy(spt->hash_table,spt_destroy_page);
-	//free(spt->hash_table);
+	if(spt->hash_table)
+	{
+		hash_destroy(spt->hash_table,spt_destroy_page);
+		free(spt->hash_table);
+	}
 	
 }

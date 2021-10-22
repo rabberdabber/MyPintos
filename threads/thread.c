@@ -640,6 +640,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->child);
 #endif
 
+#ifdef VM
+	t->spt.hash_table = NULL;
+#endif 
+
 	strlcpy (t->name, name, sizeof t->name);
 	
 	sema_init(&t->sema_wait,0);
@@ -650,13 +654,14 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	#ifdef USERPROG
 		t->fd_list_ptr = NULL;
-    #endif // DEBUG
+    #endif
 	
 
 	t->fork_level = 0;
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	t->rsp = t->stk_bottom = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

@@ -332,7 +332,10 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup();
 
-	
+#ifdef VM
+	supplemental_page_table_init(&thread_current ()->spt);
+#endif 
+
 	lock_acquire(&file_lock);
 	/* And then load the binary */
 	success = load (file_name,&_if);
@@ -579,7 +582,7 @@ load (const char *file_name,struct intr_frame *if_) {
 
 	/* Open executable file. */
 	file = filesys_open (exec_name);
-
+	
 	
 
 	if (file == NULL) {
@@ -630,7 +633,6 @@ load (const char *file_name,struct intr_frame *if_) {
 					bool writable = (phdr.p_flags & PF_W) != 0;
 					uint64_t file_page = phdr.p_offset & ~PGMASK;
 					uint64_t mem_page = phdr.p_vaddr & ~PGMASK;
-					//printf("vaddr is %p\n",phdr.p_vaddr);
 					uint64_t page_offset = phdr.p_vaddr & PGMASK;
 					uint32_t read_bytes, zero_bytes;
 					if (phdr.p_filesz > 0) {
@@ -784,6 +786,7 @@ push_args(struct intr_frame *if_,int argc,char ** argv){
 	size = sizeof(void (*) ());
 	*rsp -= size;
 	memset((void *)(*rsp),0,size);
+	thread_current ()->rsp = *rsp;	
 }
 
 
@@ -912,6 +915,8 @@ lazy_load_segment (struct page *page, void *aux) {
 	}
 
 	memset(page->va + read_bytes,0,info->zero_bytes);
+	free(info->file_to_load);
+	free(info);
 	
 	return true;
 }
@@ -983,7 +988,7 @@ static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = true;
 	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-
+	thread_current ()->stk_bottom = stack_bottom;
 	/* TODO: Map the stack on stack_bottom and claim the page immediately.
 	 * TODO: If success, set the rsp accordingly.
 	 * TODO: You should mark the page is stack. */
