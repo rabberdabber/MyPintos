@@ -102,6 +102,16 @@ struct lazyLoadInfo {
 	struct file * file_to_load;
 };
 
+struct pg_mapping {
+	int fd; // fd corresponding to file
+	void * addr;
+	struct file * file; // file
+	off_t offset; // offset to start
+	int num_of_pgs; // num of pages of the mapping
+	int zero_bytes;
+	struct list_elem map_elem;
+};
+
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,

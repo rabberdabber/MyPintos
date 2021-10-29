@@ -15,6 +15,7 @@
 #include "filesys/inode.h"
 #include "userprog/process.h"
 #include "threads/palloc.h"
+#include "vm/file.h"
 
 #define MAXFD 128
 
@@ -29,6 +30,7 @@ struct file {
 	off_t pos;                  /* Current position. */
 	bool deny_write;            /* Has file_deny_write() been called? */
 };
+
 
 
 void remove_fd_info(struct fd_info * fd_info_ptr);
@@ -67,7 +69,7 @@ syscall_init (void) {
 
 static void is_valid_addr(void * addr){
 
-	// if not user virtual address
+	/* if not user virtual address */
 	if(is_kernel_vaddr(addr)){
 		exit(-1);
 	}
@@ -75,7 +77,6 @@ static void is_valid_addr(void * addr){
 	uint64_t *pte = pml4e_walk(thread_current ()->pml4,(const uint64_t) addr,0);
 
 	if(!pte && !pml4_get_page(thread_current ()->pml4,(const void *)addr)){
-		//maprintf("whoa whoa \n");
 		exit(-1);
 	}
 	
@@ -103,8 +104,23 @@ void halt (void){
 	t->exit_status = status;
 	printf("%s: exit(%d)\n",t->name,status);
 
-	/* wake up any waiting parent thread  and hold exit_status intact*/
+	/* do the unmapping */
+	struct list_elem * e;
+	struct pg_mapping * mapping = NULL;
+	struct list *pg_mapping_lst = &thread_current ()->mapped_pg_lst;
 
+	if(!list_empty(pg_mapping_lst))
+	{
+		for(e = list_begin(pg_mapping_lst);e != list_end(pg_mapping_lst); e = list_next(e))
+		{
+			mapping = list_entry(e,struct pg_mapping,map_elem);
+			file_seek(mapping->file,mapping->offset);
+			do_munmap(mapping->addr,false);
+		}
+	}
+
+
+	/* wake up any waiting parent thread  and hold exit_status intact*/
 	sema_up(&t->sema_wait);
 	sema_down(&t->sema_wait_status);
 	
@@ -668,7 +684,109 @@ int dup2(int oldfd, int newfd){
 	return newfd;
 }
 
+static bool 
+lazy_load_page(struct page * page,void * aux){
+	ASSERT(page && aux);
+	struct lazyLoadInfo * info = (struct lazyLoadInfo *)aux;
+	ASSERT(info->read_bytes <= PGSIZE && info->zero_bytes <= PGSIZE);
 
+	off_t unread_bytes = info->read_bytes;
+	off_t tmp;
+
+	file_seek(info->file_to_load,info->curr_offset);
+	
+	while(unread_bytes){
+		tmp =  file_read(info->file_to_load,page->va + (info->read_bytes - unread_bytes),unread_bytes);
+		unread_bytes -= tmp;
+
+		
+		if(tmp == 0){
+			break;
+		}
+	}
+	
+	memset(page->va + (info->read_bytes - unread_bytes) ,0,info->zero_bytes);
+	//close(info->file_to_load);
+	free(info);
+	pml4_set_dirty(thread_current ()->pml4,page->va,false);
+	return true;
+}
+
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset){
+		
+	/* if fd is console or addr is NULL or not page aligned or length = 0 reject it */
+	if(fd <= STDOUT_FILENO || !addr || !((uint64_t)addr + length)|| pg_ofs(addr) != 0 
+	|| length == 0 || pg_ofs(offset) || is_kernel_vaddr(addr) 
+	|| is_kernel_vaddr((uint64_t)addr + length)){
+		return NULL;
+	}
+	
+	struct file *tmp,*file;
+	tmp = thread_current ()->fd_table[fd]; 
+
+	if(tmp){
+		file = file_reopen(tmp);
+		int file_len = file_length(file);
+
+		if(file_len == 0){
+			return NULL;
+		}
+	}
+	else{
+		return NULL;
+	}
+
+	/* try allocate consecutive pages for the file */
+	int num_of_pgs = (length >> PGBITS);
+	int curr_ofs = offset;
+	struct pg_mapping * mapping = (struct pg_mapping *) malloc(sizeof(struct pg_mapping));
+
+	mapping->offset = offset;
+	mapping->num_of_pgs = num_of_pgs;
+	mapping->fd = fd;
+	mapping->file = file;
+	mapping->addr = addr;
+
+	for(int i = 0; i <= num_of_pgs;i++){
+		struct lazyLoadInfo * aux = (struct lazyLoadInfo *) malloc(sizeof(struct lazyLoadInfo));
+
+		aux->file_to_load = file;
+		aux->curr_offset = curr_ofs;
+
+		if(i < num_of_pgs){
+			aux->zero_bytes = 0;
+			aux->read_bytes = PGSIZE;
+		}
+		else{
+			aux->read_bytes = pg_ofs(length);
+			mapping->zero_bytes = aux->zero_bytes = PGSIZE - aux->read_bytes;
+
+			/* does not stick out */
+			if(aux->read_bytes == 0){
+				/* the last page is pseudo */
+				mapping->zero_bytes = 0;
+				mapping->num_of_pgs -= 1; 
+				break;
+			}
+				
+		}
+		
+		if(!vm_alloc_page_with_initializer(VM_FILE,addr + (PGSIZE * i),writable,lazy_load_page,aux))
+		{
+			return NULL;
+		}
+
+		curr_ofs += PGSIZE;
+	}
+	
+	list_push_back(&thread_current ()->mapped_pg_lst,&mapping->map_elem);
+	return addr;
+}
+
+
+void munmap (void *addr){
+	do_munmap(addr,true);	
+}
 
 
 /* The main system call interface */
@@ -746,7 +864,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_DUP2:
 		f->R.rax = dup2(f->R.rdi,f->R.rsi);
 		break;
-	
+
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi,f->R.rsi,f->R.rdx,f->R.r10,f->R.r8);
+		break;
+
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
 	default:
 		break;
 	}

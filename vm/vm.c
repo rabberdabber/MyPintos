@@ -65,6 +65,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Insert the page into the spt. */
 		page = (struct page *) malloc(sizeof(struct page));
 
+		if(!page){
+			return false;
+		}
+
 		switch (VM_TYPE(type))
 		{
 	
@@ -184,16 +188,15 @@ vm_stack_growth (void *addr UNUSED) {
 
 	/* if the stack size would be above 1 MB */
 	if(curr_stk_pg_size + alloc_pg_size > (MAX_STK_PG_SIZE-1)){
-		printf("error: stack size could not exceed 1MB\n");
+		//printf("error: stack size could not exceed 1MB\n");
 		return;
 	}
 
 	while(alloc_pg_size){
 		curr_stk_bottom -= PGSIZE;
 		if(!vm_alloc_page(VM_ANON | VM_MARKER_0,curr_stk_bottom,true)){
-			printf("could not extend stack page %p\n",curr_stk_bottom);
-			thread_current ()->rsp = curr_stk_bottom + PGSIZE;
-			vm_claim_page(curr_stk_bottom + PGSIZE);
+			//printf("could not extend stack page %p\n",curr_stk_bottom);
+			//vm_claim_page(curr_stk_bottom + PGSIZE);
 			return;
 		}
 		
@@ -218,14 +221,23 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
+	uintptr_t rsp_bottom = pg_round_down(thread_current ()->rsp);
+	/*printf("addr is %p\n",addr);
+	printf("rsp - PGSIZE is %p\n",thread_current ()->rsp-PGSIZE);
+	printf("bottom rsp is %p\n",rsp_bottom);*/
+	
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	if(is_kernel_vaddr(addr)){
 		return false;
 	}
 	page = spt_find_page(spt,addr);
+
 	
-	if(!page){
+	
+	/* try to grow the stack first */
+	if(write && !page && addr < USER_STACK && addr > thread_current ()->rsp - PGSIZE)
+	{
 		void * curr_stk_bottom = thread_current ()->stk_bottom;
 		void * new_stk_bottom;
 		vm_stack_growth(addr);
@@ -234,6 +246,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		return curr_stk_bottom != new_stk_bottom;
 	}
 	
+	else if (!page)
+	{
+		return false;
+	}
 	
 	if(write && !not_present)
 		return false;

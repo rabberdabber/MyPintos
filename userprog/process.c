@@ -21,6 +21,7 @@
 #include "threads/vaddr.h"
 #include "intrinsic.h"
 #include "vm/vm.h"
+#include "vm/file.h"
 /*#ifdef VM
 #include "vm/vm.h"
 #endif*/
@@ -285,11 +286,14 @@ __do_fork (void *aux) {
 	process_init ();
 
 	struct list *fd_list_ptr = info->t->fd_list_ptr;
+	struct list *mapping_list_ptr = &info->t->mapped_pg_lst;
 	struct list_elem *e;
 	struct fd_info *fd_info_ptr;
+	struct pg_mapping * mapping;
 
 	list_init(current->fd_list_ptr);
 
+	/* duplicate list of fd_info to the child */
 	for (e = list_begin(fd_list_ptr); e != list_end(fd_list_ptr); e = list_next(e))
 	{
 		fd_info_ptr = list_entry(e, struct fd_info, fd_elem);
@@ -300,6 +304,20 @@ __do_fork (void *aux) {
 		ptr->fd_same_file = fd_info_ptr->fd_same_file;
 		ptr->stdio_shutdown = fd_info_ptr->stdio_shutdown;
 		list_push_front(current->fd_list_ptr, &ptr->fd_elem);
+	}
+
+	/* duplicate the mapping to the child */
+	for (e = list_begin(mapping_list_ptr); e != list_end(mapping_list_ptr); e = list_next(e))
+	{
+		mapping = list_entry(e,struct pg_mapping,map_elem);
+
+		struct pg_mapping * child_mapping = malloc(sizeof(struct pg_mapping));
+		child_mapping->addr = mapping->addr;
+		child_mapping->fd = mapping->fd;
+		child_mapping->file = file_duplicate(mapping->file);
+		child_mapping->num_of_pgs = mapping->num_of_pgs;
+		child_mapping->offset = mapping->offset;
+		child_mapping->zero_bytes = mapping->zero_bytes;
 	}
 
 	palloc_free_page(info);
@@ -345,7 +363,7 @@ process_exec (void *f_name) {
 	palloc_free_page (file_name);
 
 	if (!success){
-		printf("load: failed\n");
+		//printf("load: failed\n");
 		exit(-1);
 	}
 
@@ -420,6 +438,8 @@ process_exit (void) {
 		list_remove(e);
 	}
 
+	
+
 	if(curr->fd_list_ptr){
 		while(!list_empty(curr->fd_list_ptr)){
 			e = list_pop_front(curr->fd_list_ptr);
@@ -439,6 +459,7 @@ process_exit (void) {
 
 	}
 
+	
 	palloc_free_multiple(curr->fd_table,2);
 	process_cleanup ();
 }
