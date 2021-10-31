@@ -222,9 +222,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	uintptr_t rsp_bottom = pg_round_down(thread_current ()->rsp);
-	/*printf("addr is %p\n",addr);
-	printf("rsp - PGSIZE is %p\n",thread_current ()->rsp-PGSIZE);
-	printf("bottom rsp is %p\n",rsp_bottom);*/
 	
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
@@ -233,8 +230,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	}
 	page = spt_find_page(spt,addr);
 
-	
-	
 	/* try to grow the stack first */
 	if(write && !page && addr < USER_STACK && addr > thread_current ()->rsp - PGSIZE)
 	{

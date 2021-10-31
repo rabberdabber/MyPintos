@@ -837,6 +837,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_READ:
 		is_valid_addr(f->R.rsi);
 		is_valid_addr(f->R.rsi + f->R.rdx - 1);
+
+		/* make sure the page exists and it is writable */
+		#ifdef VM
+			struct page * page = spt_find_page(&thread_current ()->spt,f->R.rsi);
+			if(!page || !page->writable){
+				exit(-1);
+			}
+		#endif
+		
 		f->R.rax = read(f->R.rdi,f->R.rsi,f->R.rdx);
 		break;
 
