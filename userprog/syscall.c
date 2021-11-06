@@ -477,8 +477,6 @@ int exec(const char * file){
 
 		}
 
-
-
 		
  }
  void close (int fd){
@@ -632,7 +630,8 @@ int dup2(int oldfd, int newfd){
 	}
 
 	/* oldfd is a valid fd */
-	if(t->fd_table[oldfd_info_ptr->converted_fd_num] || oldfd_info_ptr->fd_same_file == STDOUT_FILENO || oldfd_info_ptr->fd_same_file == STDIN_FILENO || oldfd <= STDOUT_FILENO){
+	if(t->fd_table[oldfd_info_ptr->converted_fd_num] || oldfd_info_ptr->fd_same_file == STDOUT_FILENO 
+	|| oldfd_info_ptr->fd_same_file == STDIN_FILENO || oldfd <= STDOUT_FILENO){
 
 		/* Do nothing */
 		if(oldfd == newfd){

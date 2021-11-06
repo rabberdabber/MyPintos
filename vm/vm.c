@@ -5,6 +5,7 @@
 #include "vm/vm.h"
 #include "vm/inspect.h"
 #include <stdint.h>
+#include "devices/timer.h"
 #define MAX_STK_PG_SIZE ((1 << 20)/PGSIZE)
 uint64_t spt_hash(const struct hash_elem *e, void *aux);
 
@@ -84,6 +85,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 	
 		page->writable = writable;
+		page->time = 0; /* access time  */	
 		spt_insert_page(spt,page);	
 		return true;
 	}
@@ -102,6 +104,11 @@ spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
 	if((e = hash_find(spt->hash_table,&search_page.elem)) != NULL)
 		page = hash_entry(e,struct page,elem);
 
+	if(page){
+		/* set the access time */
+		page->time = timer_ticks ();
+	}
+	
 	return page;
 }
 
@@ -136,6 +143,24 @@ vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
 
+	 /* LRU policy for eviction */
+	 struct list * frame_lst_ptr = &thread_current ()->frame_lst;
+	 struct list_elem * e;
+	 struct frame * frame;
+	 size_t least_time = SIZE_MAX;
+
+	 for(e = list_begin(frame_lst_ptr); e != list_end(frame_lst_ptr); e = list_next(e))
+	 {
+		 frame = list_entry(e,struct frame,frame_elem);
+
+		 if(frame->page->time < least_time){
+			 victim = frame;
+			 least_time = frame->page->time;
+		 }
+
+	 }
+
+	ASSERT(victim);
 	return victim;
 }
 
@@ -144,9 +169,33 @@ vm_get_victim (void) {
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
+	struct list * frame_lst_ptr = &thread_current ()->frame_lst;
 	/* TODO: swap out the victim and return the evicted frame. */
+	
 
-	return NULL;
+	if(list_front(frame_lst_ptr) == &victim->frame_elem)
+	{
+		list_pop_front(frame_lst_ptr);
+	}
+	else if(list_back(frame_lst_ptr) == &victim->frame_elem)
+	{
+		list_pop_back(frame_lst_ptr);
+	}
+	else
+	{
+		list_remove(&victim->frame_elem);
+	}
+
+	/* unlink the frame and page */
+	struct page * page = victim->page;
+	swap_out(page);
+
+	victim->page = NULL;
+	page->frame = NULL;
+	pml4_clear_page(thread_current ()->pml4,page->va);
+
+
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -156,6 +205,7 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
+
 	/* TODO: Fill this function. */
 	frame = (struct frame *) malloc(sizeof(struct frame));
 
@@ -167,11 +217,24 @@ vm_get_frame (void) {
 	frame->kva = palloc_get_page(PAL_USER);
 	frame->page = NULL;
 
+	/* try to evict some frame */
 	if(!frame->kva){
-		PANIC("todo");
+
+		struct frame * evicted_frame = vm_evict_frame ();
+		printf("evicted frame is %p\n",evicted_frame);
+		
+
+		if(!evicted_frame){
+			printf("couldn't evict any frames \n");
+			return NULL;
+		}
+
+		free(frame);
+		return evicted_frame;
 	}
 
-
+	/* insert the frame to list */
+	list_push_back(&thread_current ()->frame_lst,&frame->frame_elem);
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -246,8 +309,9 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		return false;
 	}
 	
-	if(write && !not_present)
+	if(write && !not_present){
 		return false;
+	}
 	
 	return vm_do_claim_page (page);
 }
@@ -327,7 +391,6 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 }
 
 /* Copy supplemental page table from src to dst */
-
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {

@@ -4,7 +4,8 @@
 struct page;
 enum vm_type;
 
-struct anon_page {
+struct anon_page { 
+	int bitmap_index; 	   /* swap slot index (if in disk, else this is -1) */
 };
 
 void vm_anon_init (void);

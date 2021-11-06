@@ -40,6 +40,7 @@ struct thread;
 
 #define VM_TYPE(type) ((type) & 7)
 
+
 /* The representation of "page".
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
@@ -48,6 +49,7 @@ struct page {
 	const struct page_operations *operations;
 	void *va;              /* Address in terms of user space */
 	struct frame *frame;   /* Back reference for frame */
+    uint64_t time;		   /* accessed time */
 
 	/* Your implementation */
 
@@ -69,6 +71,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem frame_elem;
 };
 
 /* The function table for page operations.
