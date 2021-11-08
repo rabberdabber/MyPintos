@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "threads/mmu.h"
+#include "vm/file.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -29,17 +30,6 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	struct file_page *file_page = &page->file;
 }
 
-/* Swap in the page by read contents from the file. */
-static bool
-file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
-}
-
-/* Swap out the page by writeback contents to the file. */
-static bool
-file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
-}
 
 static struct pg_mapping *
 find_mapping(void * addr){
@@ -59,6 +49,41 @@ find_mapping(void * addr){
 
 	return mapping;
 }
+
+static struct pg_mapping *
+find_head_mapping(void * addr){
+	struct list_elem * e;
+	struct pg_mapping * mapping = NULL;
+	struct list pg_mapping_lst = thread_current ()->mapped_pg_lst;
+	
+
+	for(e = list_begin(&pg_mapping_lst);e != list_end(&pg_mapping_lst); e = list_next(e)){
+		mapping = list_entry(e,struct pg_mapping,map_elem);
+
+		char * mapping_addr = mapping->addr;
+		if(mapping->addr <= addr && (mapping_addr + (mapping->num_of_pgs * PGSIZE) ) >= addr){
+			break;
+		}
+	}
+
+	return mapping;
+}
+
+/* Swap in the page by read contents from the file. */
+static bool
+file_backed_swap_in (struct page *page, void *kva) {
+	struct file_page *file_page UNUSED = &page->file;
+
+}
+
+/* Swap out the page by writeback contents to the file. */
+static bool
+file_backed_swap_out (struct page *page) {
+	struct file_page *file_page UNUSED = &page->file;
+	
+	return true;
+}
+
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void

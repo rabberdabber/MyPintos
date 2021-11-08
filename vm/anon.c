@@ -10,6 +10,10 @@ static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
 
+
+#define PGSIZE 4096
+#define SECTORS_IN_PAGE (PGSIZE/DISK_SECTOR_SIZE)
+
 /* DO NOT MODIFY this struct */
 static const struct page_operations anon_ops = {
 	.swap_in = anon_swap_in,
@@ -27,7 +31,7 @@ vm_anon_init (void) {
 	disk_sector_t swap_size = disk_size(swap_disk);
 	
 	/* use bitmap for swapping */
-	bitmap = bitmap_create(swap_size);
+	bitmap = bitmap_create(swap_size/SECTORS_IN_PAGE);
 	
 }
 
@@ -44,21 +48,19 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
-	//printf("going to swap in \n");
 	struct anon_page *anon_page = &page->anon;
 
 	/* the page has been swapped out */
 	if(anon_page->bitmap_index != -1){
-		printf("going to read from disk\n");
 		disk_sector_t index = anon_page->bitmap_index;
 
-		for(int i = 0;i < 8;i++){
-			disk_read(swap_disk,index + i,((char *)(page->va)) + i * DISK_SECTOR_SIZE);
-			/* no more using index of bitmap for now */
-			bitmap_set(bitmap,index,false);
+		for(int i = 0;i < SECTORS_IN_PAGE;i++){
+			disk_read(swap_disk,(index * SECTORS_IN_PAGE) + i,((char *)(kva)) + i * DISK_SECTOR_SIZE);
 		}
+		
+		/* no more using index of bitmap for now */
+		bitmap_set(bitmap,index,false);
 		anon_page->bitmap_index = -1;
-		printf("finished reading from disk\n");
 	}
 	
 
@@ -70,16 +72,15 @@ static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 
-	disk_sector_t index = bitmap_scan(bitmap,0,8,false);
-
+	disk_sector_t index = bitmap_scan_and_flip(bitmap,0,1,false);
+	
 	if(index == BITMAP_ERROR){
 		printf("couldn't find any bitmap position");
 		return false;
 	}
-
-	for(int i = 0;i < 8;i++){
-		disk_write(swap_disk,index + i,((char *)(page->va)) + i * DISK_SECTOR_SIZE);
-		bitmap_set(bitmap,index,true);
+	
+	for(int i = 0;i < SECTORS_IN_PAGE;i++){ 
+		disk_write(swap_disk,(index * SECTORS_IN_PAGE) + i,((char *)(page->frame->kva)) + i * DISK_SECTOR_SIZE);
 	}
 
 	/* bitmap at index is being used */
@@ -91,6 +92,7 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+
 	if(page->frame){
 		free(page->frame);
 	}

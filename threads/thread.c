@@ -643,8 +643,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 #ifdef VM
 	t->spt.hash_table = NULL;
 	t->rsp = t->stk_bottom = NULL;
-	list_init(&t->mapped_pg_lst);
-	list_init(&t->frame_lst);
+	list_init(&t->mapped_pg_lst);	
 #endif 
 
 	strlcpy (t->name, name, sizeof t->name);

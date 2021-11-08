@@ -135,8 +135,7 @@ struct thread {
 	struct supplemental_page_table spt;
 	uintptr_t rsp;
 	uintptr_t stk_bottom;
-	struct list mapped_pg_lst;
-	struct list frame_lst;
+	struct list mapped_pg_lst;	
 #endif
 
 	/* Owned by thread.c. */

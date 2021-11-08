@@ -452,14 +452,11 @@ process_exit (void) {
 	}
 
 	for(int i = 2;i < curr->maxfd;i++){
-
 		if(curr->fd_table[i]){
 			//file_close(curr->fd_table[i]);
 		}
-
 	}
 
-	
 	palloc_free_multiple(curr->fd_table,2);
 	process_cleanup ();
 }

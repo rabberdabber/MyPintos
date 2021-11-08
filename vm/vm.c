@@ -11,7 +11,8 @@ uint64_t spt_hash(const struct hash_elem *e, void *aux);
 
 bool spt_less(const struct hash_elem *a, const struct hash_elem *b, void *aux);
 
-
+static struct lock eviction_lock;
+static struct list frame_lst;
 /* Initializes the virtual memory subsystem by invoking each subsystem's
 * intialize codes. */
 void vm_init(void)
@@ -24,6 +25,8 @@ void vm_init(void)
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	lock_init(&eviction_lock);
+	list_init(&frame_lst);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -144,11 +147,12 @@ vm_get_victim (void) {
 	 /* TODO: The policy for eviction is up to you. */
 
 	 /* LRU policy for eviction */
-	 struct list * frame_lst_ptr = &thread_current ()->frame_lst;
+	 struct list * frame_lst_ptr = &frame_lst;
 	 struct list_elem * e;
 	 struct frame * frame;
 	 size_t least_time = SIZE_MAX;
 
+	 /* find the least recently used frame */
 	 for(e = list_begin(frame_lst_ptr); e != list_end(frame_lst_ptr); e = list_next(e))
 	 {
 		 frame = list_entry(e,struct frame,frame_elem);
@@ -168,11 +172,13 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
+	lock_acquire(&eviction_lock);
+
 	struct frame *victim UNUSED = vm_get_victim ();
-	struct list * frame_lst_ptr = &thread_current ()->frame_lst;
+	struct list * frame_lst_ptr = &frame_lst;
 	/* TODO: swap out the victim and return the evicted frame. */
 	
-
+	/* remove the frame from frame list */
 	if(list_front(frame_lst_ptr) == &victim->frame_elem)
 	{
 		list_pop_front(frame_lst_ptr);
@@ -186,14 +192,17 @@ vm_evict_frame (void) {
 		list_remove(&victim->frame_elem);
 	}
 
+	lock_release(&eviction_lock);
+
 	/* unlink the frame and page */
 	struct page * page = victim->page;
 	swap_out(page);
 
 	victim->page = NULL;
 	page->frame = NULL;
+	memset(victim->kva,0,PGSIZE);
 	pml4_clear_page(thread_current ()->pml4,page->va);
-
+	pml4_set_dirty(thread_current ()->pml4,page->va,false);
 
 	return victim;
 }
@@ -221,20 +230,16 @@ vm_get_frame (void) {
 	if(!frame->kva){
 
 		struct frame * evicted_frame = vm_evict_frame ();
-		printf("evicted frame is %p\n",evicted_frame);
 		
-
 		if(!evicted_frame){
 			printf("couldn't evict any frames \n");
 			return NULL;
 		}
 
-		free(frame);
+		free(frame);	
 		return evicted_frame;
 	}
 
-	/* insert the frame to list */
-	list_push_back(&thread_current ()->frame_lst,&frame->frame_elem);
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -291,6 +296,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if(is_kernel_vaddr(addr)){
 		return false;
 	}
+
 	page = spt_find_page(spt,addr);
 
 	/* try to grow the stack first */
@@ -305,7 +311,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	}
 	
 	else if (!page)
-	{
+	{	
 		return false;
 	}
 	
@@ -352,6 +358,9 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+
+	/* insert the frame to list */
+	list_push_back(&frame_lst,&frame->frame_elem);
 
 	/* check if va is mapped */
 	if(pml4_get_page(t->pml4,page->va) != NULL ||
