@@ -28,6 +28,12 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
+	file_page->file_info = malloc(sizeof(struct lazyLoadInfo));
+	struct lazyLoadInfo * aux_src = (struct lazyLoadInfo *)page->uninit.aux;
+	memcpy(file_page->file_info,aux_src,sizeof(struct lazyLoadInfo));
+	file_page->file_info->file_to_load = file_duplicate(aux_src->file_to_load); 
+
+	return true; 
 }
 
 
@@ -50,29 +56,30 @@ find_mapping(void * addr){
 	return mapping;
 }
 
-static struct pg_mapping *
-find_head_mapping(void * addr){
-	struct list_elem * e;
-	struct pg_mapping * mapping = NULL;
-	struct list pg_mapping_lst = thread_current ()->mapped_pg_lst;
-	
-
-	for(e = list_begin(&pg_mapping_lst);e != list_end(&pg_mapping_lst); e = list_next(e)){
-		mapping = list_entry(e,struct pg_mapping,map_elem);
-
-		char * mapping_addr = mapping->addr;
-		if(mapping->addr <= addr && (mapping_addr + (mapping->num_of_pgs * PGSIZE) ) >= addr){
-			break;
-		}
-	}
-
-	return mapping;
-}
-
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+	struct lazyLoadInfo * info = file_page->file_info;
+
+	off_t unread_bytes = info->read_bytes;
+	off_t tmp;
+
+	lock_acquire(&file_lock);
+	file_seek(info->file_to_load,info->curr_offset);
+
+	while(unread_bytes){
+		tmp =  file_read(info->file_to_load,kva + (info->read_bytes - unread_bytes),unread_bytes);
+		unread_bytes -= tmp;
+	
+		if(tmp == 0){
+			break;
+		}
+	}
+	
+	memset(kva + (info->read_bytes - unread_bytes) ,0,info->zero_bytes);
+	lock_release(&file_lock);
+	return true;
 
 }
 
@@ -80,7 +87,16 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
-	
+	struct lazyLoadInfo * info = file_page->file_info;
+	ASSERT(info && info->file_to_load);
+
+	if(pml4_is_dirty(thread_current ()->pml4,page->va)){
+		lock_acquire(&file_lock);
+		file_seek(info->file_to_load,info->curr_offset);
+		file_write(info->file_to_load,page->va,PGSIZE-info->zero_bytes);
+		lock_release(&file_lock);
+	}
+
 	return true;
 }
 
@@ -116,6 +132,7 @@ do_munmap (void *addr,bool remove_from_hashtbl) {
 		return;
 	}
 
+	/* remove the mapping */
 	if(list_front(pg_lst) == &mapping->map_elem)
 	{
 		list_pop_front(pg_lst);
@@ -128,7 +145,7 @@ do_munmap (void *addr,bool remove_from_hashtbl) {
 	}
 	
 	bool changed = false;
-	//printf("going to munmap\n");
+	
 	/* change the file in the disk if dirty */
 	for(int i = 0;i <= mapping->num_of_pgs;i++){
 		if(pml4_is_dirty(thread_current ()->pml4,addr + (i * PGSIZE))){
@@ -142,6 +159,8 @@ do_munmap (void *addr,bool remove_from_hashtbl) {
 	int zero_bytes = mapping->zero_bytes;
 	file_seek(mapping->file,mapping->offset);
 
+	lock_acquire(&file_lock);
+
 	for(i = 0;i <= mapping->num_of_pgs;i++){
 		struct page * page = spt_find_page(&thread_current ()->spt,addr + (i * PGSIZE));
 	
@@ -153,12 +172,11 @@ do_munmap (void *addr,bool remove_from_hashtbl) {
 		}
 
 		if(remove_from_hashtbl){
-			/* remove the page from spt and destroy it */
+			
 			hash_delete(thread_current ()->spt.hash_table,&page->elem);
-			destroy(page);
+			//destroy(page);
 		}
-		
-	
 	}
 
+	lock_release(&file_lock);
 }

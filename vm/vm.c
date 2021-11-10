@@ -75,14 +75,12 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		switch (VM_TYPE(type))
 		{
-	
 			case VM_ANON:
 				uninit_new(page,upage,init,type,aux,anon_initializer);
 				break;
 			case VM_FILE:
 				uninit_new(page,upage,init,type,aux,file_backed_initializer);
 				break;
-		
 			default:
 				break;
 		}
@@ -151,51 +149,50 @@ vm_get_victim (void) {
 	 struct list_elem * e;
 	 struct frame * frame;
 	 size_t least_time = SIZE_MAX;
-
+	
 	 /* find the least recently used frame */
 	 for(e = list_begin(frame_lst_ptr); e != list_end(frame_lst_ptr); e = list_next(e))
 	 {
-		 frame = list_entry(e,struct frame,frame_elem);
-
-		 if(frame->page->time < least_time){
-			 victim = frame;
-			 least_time = frame->page->time;
-		 }
-
+		
+		frame = list_entry(e,struct frame,frame_elem);
+		
+		if(frame->page && frame->page->time < least_time){
+			victim = frame;
+			least_time = frame->page->time;
+		}
 	 }
 
-	ASSERT(victim);
-	return victim;
+	 ASSERT(victim);
+	 /* remove the frame from frame list */
+	 if(list_front(frame_lst_ptr) == &victim->frame_elem)
+	 {
+		list_pop_front(frame_lst_ptr);
+	 }
+	 else if(list_back(frame_lst_ptr) == &victim->frame_elem)
+	 {
+		list_pop_back(frame_lst_ptr);
+	 }
+	 else
+	 {
+		list_remove(&victim->frame_elem);
+	 }
+	
+	
+	 return victim;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	lock_acquire(&eviction_lock);
 
-	struct frame *victim UNUSED = vm_get_victim ();
-	struct list * frame_lst_ptr = &frame_lst;
-	/* TODO: swap out the victim and return the evicted frame. */
+	struct frame *victim  = vm_get_victim ();
 	
-	/* remove the frame from frame list */
-	if(list_front(frame_lst_ptr) == &victim->frame_elem)
-	{
-		list_pop_front(frame_lst_ptr);
-	}
-	else if(list_back(frame_lst_ptr) == &victim->frame_elem)
-	{
-		list_pop_back(frame_lst_ptr);
-	}
-	else
-	{
-		list_remove(&victim->frame_elem);
-	}
-
-	lock_release(&eviction_lock);
-
 	/* unlink the frame and page */
 	struct page * page = victim->page;
+
+	ASSERT(page && page->operations->swap_out);
+
 	swap_out(page);
 
 	victim->page = NULL;
@@ -228,7 +225,6 @@ vm_get_frame (void) {
 
 	/* try to evict some frame */
 	if(!frame->kva){
-
 		struct frame * evicted_frame = vm_evict_frame ();
 		
 		if(!evicted_frame){
@@ -236,12 +232,14 @@ vm_get_frame (void) {
 			return NULL;
 		}
 
-		free(frame);	
+
+		free(frame);		
 		return evicted_frame;
 	}
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+
 	return frame;
 }
 
@@ -256,15 +254,12 @@ vm_stack_growth (void *addr UNUSED) {
 
 	/* if the stack size would be above 1 MB */
 	if(curr_stk_pg_size + alloc_pg_size > (MAX_STK_PG_SIZE-1)){
-		//printf("error: stack size could not exceed 1MB\n");
 		return;
 	}
 
 	while(alloc_pg_size){
 		curr_stk_bottom -= PGSIZE;
 		if(!vm_alloc_page(VM_ANON | VM_MARKER_0,curr_stk_bottom,true)){
-			//printf("could not extend stack page %p\n",curr_stk_bottom);
-			//vm_claim_page(curr_stk_bottom + PGSIZE);
 			return;
 		}
 		
@@ -348,6 +343,7 @@ vm_claim_page (void *va UNUSED) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+	lock_acquire(&eviction_lock);
 	struct frame *frame = vm_get_frame ();
 	struct thread *t = thread_current ();
 
@@ -359,17 +355,19 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 
-	/* insert the frame to list */
+	/* Insert the frame to list */
 	list_push_back(&frame_lst,&frame->frame_elem);
 
 	/* check if va is mapped */
 	if(pml4_get_page(t->pml4,page->va) != NULL ||
 	   !pml4_set_page(t->pml4,page->va,frame->kva,page->writable)){
 		printf("va is already in pml4 mapping\n");
+		lock_release(&eviction_lock);
 		return false;
 
 	}
 
+	lock_release(&eviction_lock);
 	return swap_in(page,frame->kva);
 }
 

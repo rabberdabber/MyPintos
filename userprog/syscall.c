@@ -88,7 +88,6 @@ void halt (void){
 }
 
  void exit (int status) {
-
 	struct thread * t = thread_current();
 
 	struct file * running_file = t->running_file;
@@ -109,6 +108,8 @@ void halt (void){
 	struct pg_mapping * mapping = NULL;
 	struct list *pg_mapping_lst = &thread_current ()->mapped_pg_lst;
 
+	
+	/* going to clean up the mapping */
 	if(!list_empty(pg_mapping_lst))
 	{
 		for(e = list_begin(pg_mapping_lst);e != list_end(pg_mapping_lst); e = list_next(e))
@@ -513,7 +514,6 @@ int exec(const char * file){
 		t->nextfd = fd_info_ptr->converted_fd_num;
 	}
 	lock_release(&file_lock);
-
 }
 
 void close_stdio(bool is_stdin){
@@ -674,7 +674,6 @@ int dup2(int oldfd, int newfd){
 
 	}
 
-
 	/* Not a valid fd */
 	else{
 		return -1;
@@ -692,13 +691,13 @@ lazy_load_page(struct page * page,void * aux){
 	off_t unread_bytes = info->read_bytes;
 	off_t tmp;
 
+	lock_acquire(&file_lock);
 	file_seek(info->file_to_load,info->curr_offset);
 	
 	while(unread_bytes){
 		tmp =  file_read(info->file_to_load,page->va + (info->read_bytes - unread_bytes),unread_bytes);
 		unread_bytes -= tmp;
-
-		
+	
 		if(tmp == 0){
 			break;
 		}
@@ -708,6 +707,7 @@ lazy_load_page(struct page * page,void * aux){
 	//close(info->file_to_load);
 	free(info);
 	pml4_set_dirty(thread_current ()->pml4,page->va,false);
+	lock_release(&file_lock);
 	return true;
 }
 

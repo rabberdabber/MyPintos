@@ -3,10 +3,12 @@
 #include "filesys/file.h"
 #include "vm/vm.h"
 
+
 struct page;
 enum vm_type;
 
 struct file_page {
+	struct lazyLoadInfo * file_info;
 };
 
 void vm_file_init (void);
