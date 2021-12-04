@@ -5,6 +5,7 @@
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
+#include "filesys/page_cache.h"
 
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
@@ -44,7 +45,7 @@ fat_init (void) {
 	disk_read (filesys_disk, FAT_BOOT_SECTOR, bounce);
 	memcpy (&fat_fs->bs, bounce, sizeof (fat_fs->bs));
 	free (bounce);
-
+	
 	// Extract FAT info
 	if (fat_fs->bs.magic != FAT_MAGIC)
 		fat_boot_create ();
@@ -62,7 +63,9 @@ fat_open (void) {
 	off_t bytes_read = 0;
 	off_t bytes_left = sizeof (fat_fs->fat);
 	const off_t fat_size_in_bytes = fat_fs->fat_length * sizeof (cluster_t);
+	
 	for (unsigned i = 0; i < fat_fs->bs.fat_sectors; i++) {
+
 		bytes_left = fat_size_in_bytes - bytes_read;
 		if (bytes_left >= DISK_SECTOR_SIZE) {
 			disk_read (filesys_disk, fat_fs->bs.fat_start + i,
@@ -77,6 +80,7 @@ fat_open (void) {
 			bytes_read += bytes_left;
 			free (bounce);
 		}
+		
 	}
 }
 
@@ -120,18 +124,22 @@ fat_create (void) {
 	fat_fs_init ();
 
 	// Create FAT table
+	
 	fat_fs->fat = calloc (fat_fs->fat_length, sizeof (cluster_t));
 	if (fat_fs->fat == NULL)
 		PANIC ("FAT creation failed");
 
 	// Set up ROOT_DIR_CLST
 	fat_put (ROOT_DIR_CLUSTER, EOChain);
+	disk_sector_t root_sector = cluster_to_sector(ROOT_DIR_CLUSTER);
+	if (!dir_create(root_sector, 16))
+		PANIC("root directory creation failed");
 
 	// Fill up ROOT_DIR_CLUSTER region with 0
 	uint8_t *buf = calloc (1, DISK_SECTOR_SIZE);
 	if (buf == NULL)
 		PANIC ("FAT create failed due to OOM");
-	disk_write (filesys_disk, cluster_to_sector (ROOT_DIR_CLUSTER), buf);
+	//disk_write (filesys_disk, cluster_to_sector (ROOT_DIR_CLUSTER), buf);
 	free (buf);
 }
 
@@ -153,8 +161,37 @@ fat_boot_create (void) {
 void
 fat_fs_init (void) {
 	/* TODO: Your code goes here. */
+	fat_fs->data_start = fat_fs->bs.fat_start + fat_fs->bs.fat_sectors;
+	fat_fs->fat = NULL;
+	fat_fs->fat_length = fat_fs->bs.total_sectors - fat_fs->bs.fat_sectors - 1;
+	fat_fs->last_clst = ROOT_DIR_CLUSTER + 1;
+	lock_init(&fat_fs->write_lock);
 }
 
+/* Gets next free cluster index if it is valid  */
+bool
+fat_empty_slot(cluster_t * clst){
+	*clst = fat_fs->last_clst;
+
+	while(fat_get(*clst)){
+		(*clst)++;
+	}
+	
+	bool is_empty_slot = ((*clst) >= fat_fs->fat_length ? false : true);
+	
+	if(is_empty_slot){
+		fat_put(*clst,EOChain);	
+	}
+	
+	return is_empty_slot;
+}
+
+
+void print_fat(){
+	for(int i = 0;i < fat_fs->last_clst+1;i++){
+		printf(" clst:%d -> %d ",i,fat_get(i));
+	}
+}
 /*----------------------------------------------------------------------------*/
 /* FAT handling                                                               */
 /*----------------------------------------------------------------------------*/
@@ -165,6 +202,28 @@ fat_fs_init (void) {
 cluster_t
 fat_create_chain (cluster_t clst) {
 	/* TODO: Your code goes here. */
+	
+	/* if clst is 0 then create new chain */
+	if(clst != 0 && fat_get(clst) != EOChain){
+		PANIC("cannot append a cluster on a non tail cluster index");	
+	}
+
+	cluster_t nclst;
+	
+	if(fat_empty_slot(&nclst)){
+		fat_put(nclst,EOChain);
+
+		lock_acquire(&fat_fs->write_lock);
+		fat_fs->last_clst = nclst;
+		lock_release(&fat_fs->write_lock);
+
+		if(clst != 0)
+			fat_put(clst,nclst);
+
+		return nclst;
+	}
+
+	return 0;
 }
 
 /* Remove the chain of clusters starting from CLST.
@@ -172,22 +231,52 @@ fat_create_chain (cluster_t clst) {
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	/* TODO: Your code goes here. */
+	cluster_t tmp_cluster;
+	if(pclst != 0){
+
+		if(fat_get(pclst) != clst)
+			PANIC("Invalid chain: pclst is not the previous of clst\n");
+
+		fat_put(pclst,EOChain);
+		
+	}
+	
+	/* Set the broken tail chain as all zeros */
+	for(;clst != EOChain;){
+		tmp_cluster = clst;
+		clst = fat_get(clst);
+		fat_put(tmp_cluster,0);
+		
+		lock_acquire(&fat_fs->write_lock);
+		if(fat_fs->last_clst > tmp_cluster)
+			fat_fs->last_clst = tmp_cluster;
+		lock_release(&fat_fs->write_lock);
+	}
 }
 
 /* Update a value in the FAT table. */
 void
 fat_put (cluster_t clst, cluster_t val) {
 	/* TODO: Your code goes here. */
+	fat_fs->fat[clst] = val;
 }
 
 /* Fetch a value in the FAT table. */
 cluster_t
 fat_get (cluster_t clst) {
 	/* TODO: Your code goes here. */
+	return fat_fs->fat[clst];
 }
 
 /* Covert a cluster # to a sector number. */
 disk_sector_t
 cluster_to_sector (cluster_t clst) {
 	/* TODO: Your code goes here. */
+	return (fat_fs->data_start + clst);
 }
+
+cluster_t
+sector_to_cluster(disk_sector_t sector){
+	return (sector - fat_fs->data_start);
+}
+

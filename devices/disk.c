@@ -363,6 +363,7 @@ identify_ata_device (struct disk *d) {
 
 	/* Calculate capacity. */
 	d->capacity = id[60] | ((uint32_t) id[61] << 16);
+	
 
 	/* Print identification message. */
 	printf ("%s: detected %'"PRDSNu" sector (", d->name, d->capacity);

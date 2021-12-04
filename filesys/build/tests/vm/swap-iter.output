@@ -1,0 +1,20 @@
+Kernel command line: -q -f put swap-iter put large.txt run swap-iter
+0 ~ 9fc00 1
+100000 ~ 9e0000 1
+Pintos booting with: 
+	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
+	ext_mem: 0x100000 ~ 0x9e0000 (Usable: 9,088 kB)
+Calibrating timer...  209,510,400 loops/s.
+hd0:0: detected 361 sector (180 kB) disk, model "QEMU HARDDISK", serial "QM00001"
+hd0:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00002"
+hd1:0: detected 7,932 sector (3 MB) disk, model "QEMU HARDDISK", serial "QM00003"
+hd1:1: detected 100,800 sector (49 MB) disk, model "QEMU HARDDISK", serial "QM00004"
+Formatting file system...done.
+Boot complete.
+Putting 'swap-iter' into the file system...
+Kernel PANIC at ../../filesys/page_cache.c:47 in cache_entry_insert(): could not allocate a cache entry
+Call stack: 0x80042141cc 0x800421f001 0x800421f468 0x800421f67c 0x800421e2fe 0x800421d073 0x800421ea28 0x800420691c 0x8004206186.
+The `backtrace' program can make call stacks useful.
+Read "Backtraces" in the "Debugging Tools" chapter
+of the Pintos documentation for more information.
+Kernel PANIC recursion at ../../devices/timer.c:186 in real_time_sleep().

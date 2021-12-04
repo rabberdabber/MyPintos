@@ -60,7 +60,7 @@ struct page {
 		struct anon_page anon;
 		struct file_page file;
 #ifdef EFILESYS
-		struct page_cache page_cache;
+		//struct page_cache page_cache;
 #endif
 	};
 	struct hash_elem elem;

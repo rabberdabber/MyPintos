@@ -22,6 +22,7 @@
 #include "intrinsic.h"
 #include "vm/vm.h"
 #include "vm/file.h"
+#include "filesys/page_cache.h"
 /*#ifdef VM
 #include "vm/vm.h"
 #endif*/
@@ -597,11 +598,9 @@ load (const char *file_name,struct intr_frame *if_) {
 		ASSERT(argc < ArgSize);
 	}
 
-
 	/* Open executable file. */
 	file = filesys_open (exec_name);
-	
-	
+
 
 	if (file == NULL) {
 		printf ("load: %s: open failed\n",exec_name);
@@ -609,21 +608,27 @@ load (const char *file_name,struct intr_frame *if_) {
 		goto done;
 	}
 
+	bool read_success;
+	bool cmp;
+	bool etype,emachine,eversion,ephentsize,ephnum;
+	int read_size = 0;
+
+
 	/* Read and verify executable header. */
-	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
-			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
-			|| ehdr.e_type != 2
-			|| ehdr.e_machine != 0x3E // amd64
-			|| ehdr.e_version != 1
-			|| ehdr.e_phentsize != sizeof (struct Phdr)
-			|| ehdr.e_phnum > 1024) {
-		printf ("load: %s: error loading executable\n", exec_name);
+	if ((read_success = ((read_size = file_read (file, &ehdr, sizeof ehdr)) != sizeof ehdr))
+			|| (cmp = memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7))
+			|| (etype = (ehdr.e_type != 2))
+			|| (emachine = (ehdr.e_machine != 0x3E) )// amd64
+			|| (eversion = (ehdr.e_version != 1))
+			|| (ephentsize = (ehdr.e_phentsize != sizeof (struct Phdr)))
+			|| (ephnum = (ehdr.e_phnum > 1024))) {
+		
 		goto done;
 	}
 
 	/* Read program headers. */
 	file_ofs = ehdr.e_phoff;
-
+	
 	for (i = 0; i < ehdr.e_phnum; i++) {
 		struct Phdr phdr;
 
@@ -928,7 +933,6 @@ lazy_load_segment (struct page *page, void *aux) {
 	read_bytes = file_read(info->file_to_load,page->va,info->read_bytes);
 
 	if(read_bytes != info->read_bytes){
-		printf("lazy_load_segment: could not read properly\n");
 		return false;
 	}
 

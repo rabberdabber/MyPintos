@@ -10,6 +10,31 @@
 #include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+#include "filesys/fat.h"
+
+/* A directory. */
+struct dir
+{
+	struct inode *inode; /* Backing store. */
+	off_t pos;			 /* Current position. */
+};
+
+/* A single directory entry. */
+struct dir_entry
+{
+	disk_sector_t inode_sector; /* Sector number of header. */
+	char name[NAME_MAX + 1];	/* Null terminated file name. */
+	bool in_use;				/* In use or free? */
+};
+
+struct inode_disk
+{
+	disk_sector_t start;  /* First data sector. */
+	off_t length;		  /* File size in bytes. */
+	unsigned magic;		  /* Magic number. */
+	uint32_t unused[125]; /* Not used. */
+};
+
 
 /* List files in the root directory. */
 void
@@ -103,7 +128,7 @@ fsutil_put (char **argv) {
 	size = ((int32_t *) buffer)[1];
 	if (size < 0)
 		PANIC ("%s: invalid file size %d", file_name, size);
-
+	
 	/* Create destination file. */
 	if (!filesys_create (file_name, size))
 		PANIC ("%s: create failed", file_name);
@@ -111,15 +136,70 @@ fsutil_put (char **argv) {
 	if (dst == NULL)
 		PANIC ("%s: open failed", file_name);
 
+	/*char disk_1_after[DISK_SECTOR_SIZE];
+	cache_read(cluster_to_sector(2), disk_1_after,0,DISK_SECTOR_SIZE);
+
+	printf("before writing\n\n\n");
+	struct dir_entry *e;
+	size_t ofs;
+	bool matched = false;
+	for (ofs = 0; (e = (struct dir_entry *)(disk_1_after + ofs)) && ofs < DISK_SECTOR_SIZE;
+		 ofs += sizeof(struct dir_entry)){
+		if (e->in_use && !strcmp(file_name, e->name))
+		{
+			matched = true;
+		}
+	}
+
+	ASSERT(matched);*/
 	/* Do copy. */
+	
 	while (size > 0) {
 		int chunk_size = size > DISK_SECTOR_SIZE ? DISK_SECTOR_SIZE : size;
 		disk_read (src, sector++, buffer);
 		if (file_write (dst, buffer, chunk_size) != chunk_size)
 			PANIC ("%s: write failed with %"PROTd" bytes unwritten",
 					file_name, size);
+
+		
 		size -= chunk_size;
 	}
+
+	/*char disk_2_after[DISK_SECTOR_SIZE];
+	cache_read(cluster_to_sector(2),disk_2_after,0,DISK_SECTOR_SIZE);
+	struct dir_entry * entry1,* entry2;
+	entry1 = disk_1_after;
+	entry2 = disk_2_after;
+	printf("entry 1 is %d and entry 2 is %d\n",entry1->in_use,entry2->in_use);
+	printf("entry 1 is %d and entry 2 is %d\n", entry1->inode_sector, entry2->inode_sector);
+	printf("entry 1 is %s and entry 2 is %s\n", entry1->name, entry2->name);
+
+	for(int i = 0;i < DISK_SECTOR_SIZE;i++){
+		if(disk_1_after[i] != disk_2_after[i]){
+			printf("the directory infos corrupted at %d\n",i);
+			
+		}
+	}
+	exit(-1);*/
+	/*struct inode_disk * inode = (struct inode_disk *)disk_1;
+	printf("start sector is %d\n",inode->start);
+	printf("length is %d\n",inode->length);*/
+	
+	/*struct dir * dir = dir_open_root();*/
+	/*printf("after writing\n\n\n");
+	matched = false;
+	for (ofs = 0; (e = (struct dir_entry *)(disk_1_after + ofs)) && ofs < DISK_SECTOR_SIZE;
+		 ofs += sizeof(struct dir_entry))
+		
+		if (e->in_use && !strcmp(file_name,e->name))
+		{
+			matched = true;
+			
+		}
+
+	
+	ASSERT(matched);
+	printf("passed \n");*/
 
 	/* Finish up. */
 	file_close (dst);

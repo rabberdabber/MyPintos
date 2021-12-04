@@ -7,9 +7,19 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
+#include "filesys/page_cache.h"
+#include "filesys/fat.h"
+
+#define MAX_CACHE_ENTRY 64
 
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
+
+/* The metadata of buffer cache */
+struct page_cache_meta * cache_meta;
+
+/* The buffer cache */
+struct page_cache * cache;
 
 static void do_format (void);
 
@@ -24,12 +34,15 @@ filesys_init (bool format) {
 	inode_init ();
 
 #ifdef EFILESYS
+	cache_init();
 	fat_init ();
 
 	if (format)
 		do_format ();
 
 	fat_open ();
+	
+
 #else
 	/* Original FS */
 	free_map_init ();
@@ -48,6 +61,9 @@ filesys_done (void) {
 	/* Original FS */
 #ifdef EFILESYS
 	fat_close ();
+
+	/* flushes all entries and destroys the hash table */
+	cache_flush(NULL);
 #else
 	free_map_close ();
 #endif
@@ -59,14 +75,23 @@ filesys_done (void) {
  * or if internal memory allocation fails. */
 bool
 filesys_create (const char *name, off_t initial_size) {
-	disk_sector_t inode_sector = 0;
 	struct dir *dir = dir_open_root ();
+	cluster_t clst;
+	bool is_empty_slot = true;
+	bool create_chain = true;
+	bool inode_creat = true;
+	bool dir_ad = true;
+	
 	bool success = (dir != NULL
-			&& free_map_allocate (1, &inode_sector)
-			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, name, inode_sector));
-	if (!success && inode_sector != 0)
-		free_map_release (inode_sector, 1);
+			&& (is_empty_slot = fat_empty_slot(&clst))
+			&& (inode_creat = inode_create (cluster_to_sector(clst), initial_size))
+			&& (dir_ad = dir_add (dir, name,cluster_to_sector(clst))));
+
+
+	if (!success && is_empty_slot){
+		fat_remove_chain(clst,0);	
+	}
+		
 	dir_close (dir);
 
 	return success;
@@ -110,6 +135,7 @@ do_format (void) {
 #ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
+	
 	fat_close ();
 #else
 	free_map_create ();
