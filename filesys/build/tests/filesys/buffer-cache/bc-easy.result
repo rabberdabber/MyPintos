@@ -1,1 +1,2 @@
-PASS
+FAIL
+run: check read_cnt: FAILED

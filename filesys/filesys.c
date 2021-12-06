@@ -34,7 +34,6 @@ filesys_init (bool format) {
 	inode_init ();
 
 #ifdef EFILESYS
-	cache_init();
 	fat_init ();
 
 	if (format)
@@ -61,9 +60,6 @@ filesys_done (void) {
 	/* Original FS */
 #ifdef EFILESYS
 	fat_close ();
-
-	/* flushes all entries and destroys the hash table */
-	cache_flush(NULL);
 #else
 	free_map_close ();
 #endif
@@ -93,7 +89,6 @@ filesys_create (const char *name, off_t initial_size) {
 	}
 		
 	dir_close (dir);
-
 	return success;
 }
 

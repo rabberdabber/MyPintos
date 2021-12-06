@@ -1,0 +1,10 @@
+# -*- makefile -*-
+
+SRCDIR = ../..
+
+all:
+	@echo $(TESTS) $(EXTRA_GRADES)
+
+include ../../Make.config
+include ../Make.vars
+include ../../tests/Make.tests

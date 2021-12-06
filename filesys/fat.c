@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "filesys/page_cache.h"
+#include "filesys/directory.h"
 
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
@@ -134,7 +135,7 @@ fat_create (void) {
 	disk_sector_t root_sector = cluster_to_sector(ROOT_DIR_CLUSTER);
 	if (!dir_create(root_sector, 16))
 		PANIC("root directory creation failed");
-
+	printf("directory created\n");
 	// Fill up ROOT_DIR_CLUSTER region with 0
 	uint8_t *buf = calloc (1, DISK_SECTOR_SIZE);
 	if (buf == NULL)

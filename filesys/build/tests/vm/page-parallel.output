@@ -5,23 +5,35 @@ Pintos booting with:
 	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
 	ext_mem: 0x100000 ~ 0x13e0000 (Usable: 19,328 kB)
 Calibrating timer...  157,081,600 loops/s.
-hd0:0: detected 361 sector (180 kB) disk, model "QEMU HARDDISK", serial "QM00001"
+hd0:0: detected 353 sector (176 kB) disk, model "QEMU HARDDISK", serial "QM00001"
 hd0:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00002"
 hd1:0: detected 209 sector (104 kB) disk, model "QEMU HARDDISK", serial "QM00003"
 hd1:1: detected 8,064 sector (3 MB) disk, model "QEMU HARDDISK", serial "QM00004"
-Formatting file system...done.
+Formatting file system...directory created
+done.
 Boot complete.
 Putting 'page-parallel' into the file system...
 Putting 'child-linear' into the file system...
 Executing 'page-parallel':
 (page-parallel) begin
-Kernel PANIC at ../../threads/thread.c:373 in thread_current(): assertion `is_thread (t)' failed.
-Call stack: 0x80042141cc 0x800420749b 0x800420abba 0x800420a794 0x800420bb37 0x800420bc3b 0x8004224039 0x8004224483 0x8004224393 0x800421969c 0x80042092c4 0x80042096e2 0x800421f588 0x800421e0d6 0x800421cfe9 0x8004218ed2 0x8004224b60 0x80042245e8 0x8004224393 0x800421969c 0x80042092c4 0x80042096e2 0x800421f588 0x800421e0d6 0x800421cfe9 0x8004218ed2 0x8004224b60 0x80042245e8 0x8004224393 0x800421969c 0x80042092c4 0x80042096e2 0x800421f588 0x800421e0d6 0x800421cfe9 0x8004218ed2 0x8004224b60 0x80042245e8 0x8004224393 0x800421969c 0x80042092c4 0x80042096e2 0x400179 0x400ee9 0Interrupt 0x0d (#GP General Protection Exception) at rip=8004211206
- cr2=0000000000611000 error=               0
-rax 0000800422ee0000 rbx 0000000000000000 rcx 00000080040b8000 rdx 00000000000003d4
-rsp 00000080042c62a0 rbp 00000080042c62b0 rsi 000000000000910f rdi 0000000000000000
-rip 0000008004211206 r8 00000080042c61b8  r9 0000008004217645 r10 00001f042c6e6000
-r11 0000800422ee1800 r12 000080042c6e3000 r13 0000800420a53100 r14 000080042c6e3000
-r15 0000012450e80000 rflags 00000006
-es: 0010 ds: 0010 cs: 0008 ss: 0010
-Kernel PANIC recursion at ../../userprog/exception.c:99 in kill().
+child-linear: exit(66)
+(page-parallel) wait for child 0
+(page-parallel) wait for child 1
+child-linear: exit(66)
+(page-parallel) wait for child 2
+child-linear: exit(66)
+(page-parallel) wait for child 3
+child-linear: exit(66)
+(page-parallel) end
+page-parallel: exit(0)
+Execution of 'page-parallel' complete.
+Timer: 198 ticks
+Thread: 38 idle ticks, 41 kernel ticks, 120 user ticks
+hd0:0: 0 reads, 0 writes
+hd0:1: 377 reads, 528 writes
+hd1:0: 209 reads, 0 writes
+hd1:1: 0 reads, 0 writes
+Console: 1290 characters output
+Keyboard: 0 keys pressed
+Exception: 0 page faults
+Powering off...

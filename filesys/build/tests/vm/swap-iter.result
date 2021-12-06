@@ -1,13 +1,1 @@
-FAIL
-Kernel panic in run: PANIC at ../../filesys/page_cache.c:47 in cache_entry_insert(): could not allocate a cache entry
-Call stack: 0x80042141cc 0x800421f001 0x800421f468 0x800421f67c 0x800421e2fe 0x800421d073 0x800421ea28 0x800420691c 0x8004206186
-Translation of call stack:
-0x00000080042141cc: debug_panic (lib/kernel/debug.c:32)
-0x000000800421f001: cache_entry_insert (filesys/page_cache.c:50)
-0x000000800421f468: cache_entry_find_slot (filesys/page_cache.c:163)
-0x000000800421f67c: cache_write (filesys/page_cache.c:202)
-0x000000800421e2fe: inode_write_at (filesys/inode.c:313)
-0x000000800421d073: file_write (filesys/file.c:98)
-0x000000800421ea28: fsutil_put (filesys/fsutil.c:160)
-0x000000800420691c: run_actions (threads/init.c:304)
-0x0000008004206186: main (threads/init.c:127)
+PASS

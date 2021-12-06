@@ -601,7 +601,6 @@ load (const char *file_name,struct intr_frame *if_) {
 	/* Open executable file. */
 	file = filesys_open (exec_name);
 
-
 	if (file == NULL) {
 		printf ("load: %s: open failed\n",exec_name);
 		t->running_file = file;
@@ -625,7 +624,7 @@ load (const char *file_name,struct intr_frame *if_) {
 		
 		goto done;
 	}
-
+	
 	/* Read program headers. */
 	file_ofs = ehdr.e_phoff;
 	
@@ -697,7 +696,7 @@ load (const char *file_name,struct intr_frame *if_) {
 
 	push_args(if_,argc,argv);
 	success = true;
-
+	
 	struct inode *inode = file_get_inode(file);
 	int deny_write_cnt = inode_get_deny_write_cnt(inode);
 
@@ -707,7 +706,6 @@ load (const char *file_name,struct intr_frame *if_) {
 	}
 
 	t->running_file = file;
-
 done:
 	return success;
 }

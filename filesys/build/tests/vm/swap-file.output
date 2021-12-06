@@ -5,16 +5,29 @@ Pintos booting with:
 	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
 	ext_mem: 0x100000 ~ 0x7e0000 (Usable: 7,040 kB)
 Calibrating timer...  209,510,400 loops/s.
-hd0:0: detected 361 sector (180 kB) disk, model "QEMU HARDDISK", serial "QM00001"
+hd0:0: detected 353 sector (176 kB) disk, model "QEMU HARDDISK", serial "QM00001"
 hd0:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00002"
 hd1:0: detected 7,931 sector (3 MB) disk, model "QEMU HARDDISK", serial "QM00003"
 hd1:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00004"
-Formatting file system...done.
+Formatting file system...directory created
+done.
 Boot complete.
 Putting 'swap-file' into the file system...
-Kernel PANIC at ../../filesys/page_cache.c:47 in cache_entry_insert(): could not allocate a cache entry
-Call stack: 0x80042141cc 0x800421f001 0x800421f468 0x800421f67c 0x800421e2fe 0x800421d073 0x800421ea28 0x800420691c 0x8004206186.
-The `backtrace' program can make call stacks useful.
-Read "Backtraces" in the "Debugging Tools" chapter
-of the Pintos documentation for more information.
-Kernel PANIC recursion at ../../devices/timer.c:186 in real_time_sleep().
+Putting 'large.txt' into the file system...
+Executing 'swap-file':
+(swap-file) begin
+(swap-file) open "large.txt"
+(swap-file) mmap "large.txt"
+(swap-file) end
+swap-file: exit(0)
+Execution of 'swap-file' complete.
+Timer: 502 ticks
+Thread: 63 idle ticks, 263 kernel ticks, 176 user ticks
+hd0:0: 0 reads, 0 writes
+hd0:1: 8090 reads, 8250 writes
+hd1:0: 7931 reads, 0 writes
+hd1:1: 4008 reads, 4032 writes
+Console: 1094 characters output
+Keyboard: 0 keys pressed
+Exception: 0 page faults
+Powering off...

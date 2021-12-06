@@ -4,12 +4,13 @@ Kernel command line: -q -f put sm-seq-block run sm-seq-block
 Pintos booting with: 
 	base_mem: 0x0 ~ 0x9fc00 (Usable: 639 kB)
 	ext_mem: 0x100000 ~ 0x13e0000 (Usable: 19,328 kB)
-Calibrating timer...  209,510,400 loops/s.
-hd0:0: detected 361 sector (180 kB) disk, model "QEMU HARDDISK", serial "QM00001"
+Calibrating timer...  157,081,600 loops/s.
+hd0:0: detected 353 sector (176 kB) disk, model "QEMU HARDDISK", serial "QM00001"
 hd0:1: detected 20,160 sector (9 MB) disk, model "QEMU HARDDISK", serial "QM00002"
 hd1:0: detected 106 sector (53 kB) disk, model "QEMU HARDDISK", serial "QM00003"
 hd1:1: detected 8,064 sector (3 MB) disk, model "QEMU HARDDISK", serial "QM00004"
-Formatting file system...done.
+Formatting file system...directory created
+done.
 Boot complete.
 Putting 'sm-seq-block' into the file system...
 Executing 'sm-seq-block':
@@ -19,23 +20,18 @@ Executing 'sm-seq-block':
 (sm-seq-block) writing "noodle"
 (sm-seq-block) close "noodle"
 (sm-seq-block) open "noodle" for verification
-(sm-seq-block) 54 bytes read starting at offset 512 in "noodle" differ from expected.
-(sm-seq-block) Data actually read:
-0000000000000200  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00 |................|
-0000000000000210  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00 |................|
-0000000000000220  00 00 00 00 00 00 00 00-00 00 00 00 00 00 00 00 |................|
-0000000000000230  00 00 00 00 00 00                               |......          |
-(sm-seq-block) Expected data:
-0000000000000200  e1 7a ed f9 37 0b f1 26-65 d4 a1 f3 0e 57 5c c8 |.z..7..&e....W\.|
-0000000000000210  4e a7 4a 5f c6 90 bf eb-77 62 c5 50 4c 64 7f 7a |N.J_....wb.PLd.z|
-0000000000000220  3b a8 89 bb 58 3e 30 27-67 bb d1 84 40 88 ca a3 |;...X>0'g...@...|
-0000000000000230  3c 7b cf 70 32 1e                               |<{.p2.          |
-(sm-seq-block) 54 bytes read starting at offset 512 in "noodle" differ from expected: FAILED
-sm-seq-block: exit(1)
+(sm-seq-block) verified contents of "noodle"
+(sm-seq-block) close "noodle"
+(sm-seq-block) end
+sm-seq-block: exit(0)
 Execution of 'sm-seq-block' complete.
-Kernel PANIC at ../../devices/disk.c:412 in select_sector(): assertion `sec_no < d->capacity' failed.
-Call stack: 0x80042141cc 0x80042102a5 0x800420f9fb 0x800421f271 0x800421bab4 0x8004206976 0x80042061a3.
-The `backtrace' program can make call stacks useful.
-Read "Backtraces" in the "Debugging Tools" chapter
-of the Pintos documentation for more information.
-Kernel PANIC recursion at ../../threads/synch.c:216 in lock_acquire().
+Timer: 73 ticks
+Thread: 37 idle ticks, 32 kernel ticks, 4 user ticks
+hd0:0: 0 reads, 0 writes
+hd0:1: 288 reads, 449 writes
+hd1:0: 106 reads, 0 writes
+hd1:1: 0 reads, 0 writes
+Console: 1233 characters output
+Keyboard: 0 keys pressed
+Exception: 0 page faults
+Powering off...

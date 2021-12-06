@@ -243,6 +243,7 @@ run_task (char **argv) {
 
 	printf ("Executing '%s':\n", task);
 #ifdef USERPROG
+
 	if (thread_tests){
 		run_test (task);
 	} else {
@@ -256,6 +257,7 @@ run_task (char **argv) {
 #else
 	run_test (task);
 #endif
+	
 	printf ("Execution of '%s' complete.\n", task);
 }
 

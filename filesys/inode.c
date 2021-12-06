@@ -95,8 +95,9 @@ inode_create (disk_sector_t sector, off_t length) {
 
 			if(fat_empty_slot(&clst)){
 				disk_inode->start = cluster_to_sector(clst);
-				cache_write(sector, disk_inode,0,DISK_SECTOR_SIZE);
-				for (i = 0; i < sectors; i++){
+				//cache_write(sector, disk_inode,0,DISK_SECTOR_SIZE);
+				disk_write(filesys_disk,sector,disk_inode);
+				for (i = 0; i < (sectors - 1); i++){
 					clst = fat_create_chain(clst);
 				}
 			}
@@ -122,7 +123,7 @@ struct inode *
 inode_open (disk_sector_t sector) {
 	struct list_elem *e;
 	struct inode *inode;
-
+	
 	/* Check whether this inode is already open. */
 	for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
 			e = list_next (e)) {
@@ -146,7 +147,8 @@ inode_open (disk_sector_t sector) {
 	inode->removed = false;
 	lock_init(&inode->inode_lock);
 
-	cache_read (inode->sector, &inode->data,0,sizeof(struct inode_disk));
+	//cache_read (inode->sector, &inode->data,0,sizeof(struct inode_disk));
+	disk_read(filesys_disk,inode->sector,&inode->data);
 	return inode;
 }
 
@@ -188,6 +190,8 @@ inode_close (struct inode *inode) {
 			/*free_map_release (inode->sector, 1);
 			free_map_release (inode->data.start,
 					bytes_to_sectors (inode->data.length)); */
+			fat_remove_chain(sector_to_cluster(inode->sector),0);
+			fat_remove_chain(sector_to_cluster(inode->data.start),0);
 		}
 
 //		free (inode); 
@@ -218,7 +222,7 @@ inode_get_sector(disk_sector_t start,off_t pos,off_t * run){
 		}
 		read_size += DISK_SECTOR_SIZE;
 		++(*run);
-	}
+	}	
 	return sector;
 }
 
@@ -227,11 +231,12 @@ inode_get_sector(disk_sector_t start,off_t pos,off_t * run){
  * than SIZE if an error occurs or end of file is reached. */
 off_t
 inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
-	if(!lock_held_by_current_thread(&inode->inode_lock))
-		lock_acquire(&inode->inode_lock);
+	//if(!lock_held_by_current_thread(&inode->inode_lock))
+		//ock_acquire(&inode->inode_lock);
 	uint8_t *buffer = buffer_;
 	off_t run,read_size = 0;
 	disk_sector_t start = inode->data.start;
+	uint8_t *bounce = NULL;
 	
 	disk_sector_t sector = inode_get_sector(start,offset,&run);
 	cluster_t clst = sector_to_cluster(sector);
@@ -242,32 +247,39 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		sector_ofs = offset % DISK_SECTOR_SIZE;
 		sector_left = DISK_SECTOR_SIZE - sector_ofs;
 		sector = cluster_to_sector(clst);
-		chunk_size = MIN(size - read_size,MIN(inode_left,sector_left));	
+		chunk_size = MIN(size - read_size,MIN(inode_left,sector_left));
 	
+		if ((size - read_size) <= 0 || inode_left <= 0){
+			break;
+		}
+			
 
-		if(inode_left < DISK_SECTOR_SIZE || (size - read_size) < DISK_SECTOR_SIZE){
-
-			if(read_size == 0){
-				cache_read(sector,buffer + read_size,sector_ofs,chunk_size);
+		if (sector_ofs == 0 && chunk_size == DISK_SECTOR_SIZE)
+		{
+			/* Read full sector directly into caller's buffer. */
+			disk_read(filesys_disk, sector, buffer + read_size);
+		}
+		else
+		{
+			/* Read sector into bounce buffer, then partially copy
+			 * into caller's buffer. */
+			if (bounce == NULL)
+			{
+				bounce = malloc(DISK_SECTOR_SIZE);
+				if (bounce == NULL)
+					break;
 			}
-			else{
-				cache_read(sector,buffer+read_size,sector_ofs,chunk_size);
-			}
-	
-			return read_size + chunk_size;
+			disk_read(filesys_disk, sector, bounce);
+			memcpy(buffer + read_size, bounce + sector_ofs, chunk_size);
 		}
 
-		else{
-			cache_read(sector,buffer + read_size,sector_ofs,DISK_SECTOR_SIZE);
-		}
 		read_size += chunk_size;
 		offset += chunk_size;
 		inode_left -= chunk_size;
 		
 	}
-
-	lock_release(&inode->inode_lock);
-
+	//lock_release(&inode->inode_lock);
+	free(bounce);
 	return read_size;
 }
 
@@ -279,12 +291,14 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		off_t offset) {
-	if(!lock_held_by_current_thread(&inode->inode_lock))
-		lock_acquire(&inode->inode_lock);
+	//if(!lock_held_by_current_thread(&inode->inode_lock))
+		//lock_acquire(&inode->inode_lock);
 	const uint8_t *buffer = buffer_;
 	off_t run,write_size = 0;
 	disk_sector_t start = inode->data.start;
 	disk_sector_t sector = inode_get_sector(start,offset,&run);
+	uint8_t *bounce = NULL;
+
 
 	cluster_t clst = sector_to_cluster(sector);
 	int sector_ofs,chunk_size,sector_left;
@@ -300,27 +314,42 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
 		chunk_size = MIN(size - write_size,MIN(inode_left,sector_left));
 
-
-		if(inode_left < DISK_SECTOR_SIZE || (size-write_size) < DISK_SECTOR_SIZE){
-
-			if(write_size == 0){
-				cache_write(sector,buffer + write_size,sector_ofs,chunk_size);
-			}
-			else{
-				cache_write(sector,buffer + write_size,sector_ofs,chunk_size);
-			}
+		if ((size - write_size) <= 0 || inode_left <= 0){
+			break;
+		}
 			
-			return write_size + chunk_size;
+		if (sector_ofs == 0 && chunk_size == DISK_SECTOR_SIZE)
+		{
+			/* Write full sector directly to disk. */
+			disk_write(filesys_disk, sector, buffer + write_size);
 		}
-		else{
-			cache_write(sector,buffer + write_size,sector_ofs,DISK_SECTOR_SIZE);
+		else
+		{
+			/* We need a bounce buffer. */
+			if (bounce == NULL)
+			{
+				bounce = malloc(DISK_SECTOR_SIZE);
+				if (bounce == NULL)
+					break;
+			}
+
+			/* If the sector contains data before or after the chunk
+			   we're writing, then we need to read in the sector
+			   first.  Otherwise we start with a sector of all zeros. */
+			if (sector_ofs > 0 || chunk_size < sector_left)
+				disk_read(filesys_disk, sector, bounce);
+			else
+				memset(bounce, 0, DISK_SECTOR_SIZE);
+			memcpy(bounce + sector_ofs, buffer + write_size, chunk_size);
+			disk_write(filesys_disk, sector, bounce);
 		}
+
 		write_size += chunk_size;
 		offset += chunk_size;
 		inode_left -= chunk_size;
 	}
-	
-	lock_release(&inode->inode_lock);
+	free(bounce);
+	//lock_release(&inode->inode_lock);
 	return write_size;
 }
 

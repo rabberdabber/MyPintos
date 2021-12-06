@@ -92,13 +92,13 @@ void halt (void){
 
 	struct file * running_file = t->running_file;
 
-	lock_acquire(&file_lock);
+	//lock_acquire(&file_lock);
 
 	if(running_file){
 		file_close(running_file);
 	}
 
-	lock_release(&file_lock);
+	//lock_release(&file_lock);
 
 	t->exit_status = status;
 	printf("%s: exit(%d)\n",t->name,status);
@@ -200,7 +200,7 @@ int exec(const char * file){
 	}
 
 	else{
-		lock_acquire(&file_lock);
+		//lock_acquire(&file_lock);
 		if(fd != STDOUT_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
 			lock_release(&file_lock);
 			exit(-1);
@@ -215,7 +215,7 @@ int exec(const char * file){
 		
 		written_sofar = file_write(file_p,buffer,length);
 
-		lock_release(&file_lock);
+		//lock_release(&file_lock);
 	}
 
 	return written_sofar;
@@ -227,9 +227,9 @@ int exec(const char * file){
 		exit(-1);
 	}
 	
-	lock_acquire(&file_lock);
+	//lock_acquire(&file_lock);
 	bool created = filesys_create(file,initial_size);
-	lock_release(&file_lock);
+	//lock_release(&file_lock);
 
 	return created;
 }
@@ -239,9 +239,9 @@ int exec(const char * file){
 	if(!file){
 		exit(-1);
 	}
-	lock_acquire(&file_lock);
+	//lock_acquire(&file_lock);
 	bool removed = filesys_remove(file);
-	lock_release(&file_lock);
+	//lock_release(&file_lock);
 
 	return removed;
 }
@@ -284,7 +284,7 @@ int exec(const char * file){
 	}
 
 	else {
-		lock_acquire(&file_lock);
+		//lock_acquire(&file_lock);
 		if(fd != STDIN_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
 			lock_release(&file_lock);
 			exit(-1);
@@ -298,8 +298,9 @@ int exec(const char * file){
 		}
 		
 		read_sofar = file_read(file_p,buffer,length);
+		//printf("read so far:%d\n",read_sofar);
 
-		lock_release(&file_lock);
+		//lock_release(&file_lock);
 	}
 	
 	return read_sofar;
@@ -314,12 +315,12 @@ int exec(const char * file){
 		exit(-1);
 	}
 
-	lock_acquire(&file_lock);
+//	lock_acquire(&file_lock);
 
 
 	struct file * open_file = filesys_open(file);
 
-	lock_release(&file_lock);
+//	lock_release(&file_lock);
 
 
 	if(!open_file || t->maxfd > MAXFD){
@@ -360,9 +361,9 @@ int exec(const char * file){
 		exit(-1);
 	}
 
-	lock_acquire(&file_lock);
+//	lock_acquire(&file_lock);
 	off_t size = file_length(t->fd_table[info_ptr->converted_fd_num]);
-	lock_release(&file_lock);
+//	lock_release(&file_lock);
 
 	return size;
 }
@@ -377,13 +378,13 @@ int exec(const char * file){
 		return;
 	}
 
-	lock_acquire(&file_lock);
+//	lock_acquire(&file_lock);
 
 	if(t->fd_table[info_ptr->converted_fd_num]){
 		file_seek(t->fd_table[info_ptr->converted_fd_num],position);
 	}
 
-	lock_release(&file_lock);
+//	lock_release(&file_lock);
 }
 
  unsigned tell (int fd){
@@ -396,12 +397,12 @@ int exec(const char * file){
 		exit(-1);
 	}
 
-	lock_acquire(&file_lock);
+//	lock_acquire(&file_lock);
 
 	if(t->fd_table[info_ptr->converted_fd_num])
 		pos = file_tell(t->fd_table[info_ptr->converted_fd_num]);
 		
-	lock_release(&file_lock);
+//	lock_release(&file_lock);
 
 	return pos;
 
@@ -503,7 +504,7 @@ int exec(const char * file){
 	}
 
 
-	lock_acquire(&file_lock);
+	//lock_acquire(&file_lock);
 
 	/* if fd available */
 	if(t->fd_table[fd_info_ptr->converted_fd_num]){
@@ -513,7 +514,7 @@ int exec(const char * file){
 		t->fd_table[fd_info_ptr->converted_fd_num] = NULL;
 		t->nextfd = fd_info_ptr->converted_fd_num;
 	}
-	lock_release(&file_lock);
+	//lock_release(&file_lock);
 }
 
 void close_stdio(bool is_stdin){
@@ -691,7 +692,7 @@ lazy_load_page(struct page * page,void * aux){
 	off_t unread_bytes = info->read_bytes;
 	off_t tmp;
 
-	lock_acquire(&file_lock);
+	//lock_acquire(&file_lock);
 	file_seek(info->file_to_load,info->curr_offset);
 	
 	while(unread_bytes){
@@ -707,7 +708,7 @@ lazy_load_page(struct page * page,void * aux){
 	//close(info->file_to_load);
 	free(info);
 	pml4_set_dirty(thread_current ()->pml4,page->va,false);
-	lock_release(&file_lock);
+	//lock_release(&file_lock);
 	return true;
 }
 

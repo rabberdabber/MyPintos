@@ -11,4 +11,5 @@ filesys/fat.o: ../../filesys/fat.c ../../include/filesys/fat.h \
  ../../include/threads/palloc.h ../../include/lib/kernel/hash.h \
  ../../include/lib/kernel/list.h ../../include/vm/uninit.h \
  ../../include/vm/anon.h ../../include/vm/file.h \
- ../../include/threads/thread.h ../../include/threads/interrupt.h
+ ../../include/threads/thread.h ../../include/threads/interrupt.h \
+ ../../include/filesys/directory.h
