@@ -34,6 +34,7 @@ filesys_init (bool format) {
 	inode_init ();
 
 #ifdef EFILESYS
+	cache_init();
 	fat_init ();
 
 	if (format)

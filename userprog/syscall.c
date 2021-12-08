@@ -202,7 +202,7 @@ int exec(const char * file){
 	else{
 		//lock_acquire(&file_lock);
 		if(fd != STDOUT_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
-			lock_release(&file_lock);
+			//lock_release(&file_lock);
 			exit(-1);
 		}
 
@@ -286,7 +286,7 @@ int exec(const char * file){
 	else {
 		//lock_acquire(&file_lock);
 		if(fd != STDIN_FILENO && !t->fd_table[info_ptr->converted_fd_num]){
-			lock_release(&file_lock);
+			//lock_release(&file_lock);
 			exit(-1);
 		}
 

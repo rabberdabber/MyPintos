@@ -133,7 +133,7 @@ fat_create (void) {
 	// Set up ROOT_DIR_CLST
 	fat_put (ROOT_DIR_CLUSTER, EOChain);
 	disk_sector_t root_sector = cluster_to_sector(ROOT_DIR_CLUSTER);
-	if (!dir_create(root_sector, 16))
+	if (!dir_create(root_sector, 25))
 		PANIC("root directory creation failed");
 	printf("directory created\n");
 	// Fill up ROOT_DIR_CLUSTER region with 0
@@ -182,6 +182,7 @@ fat_empty_slot(cluster_t * clst){
 	
 	if(is_empty_slot){
 		fat_put(*clst,EOChain);	
+		fat_fs->last_clst = *clst;
 	}
 	
 	return is_empty_slot;
